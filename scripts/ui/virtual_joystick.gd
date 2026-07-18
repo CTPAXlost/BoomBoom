@@ -1,5 +1,5 @@
 extends Control
-class_name VirtualJoystick
+class_name BoomTouchJoystick
 
 signal vector_changed(value)
 

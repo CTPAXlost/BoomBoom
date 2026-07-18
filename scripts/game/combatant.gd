@@ -26,8 +26,7 @@ func take_damage(amount, attacker = null):
 		return
 	last_attacker = attacker
 	health = max(0.0, health - float(amount))
-	if has_method("on_health_changed"):
-		on_health_changed()
+	on_health_changed()
 	if health <= 0.0:
 		die(attacker)
 
@@ -50,5 +49,10 @@ func respawn_at(point):
 	collision_layer = 2
 	collision_mask = 3
 	velocity = Vector3.ZERO
-	if has_method("on_respawned"):
-		on_respawned()
+	on_respawned()
+
+func on_health_changed():
+	pass
+
+func on_respawned():
+	pass

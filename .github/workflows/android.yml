@@ -77,9 +77,11 @@ jobs:
           use_preset_export_path: true
           verbose: true
 
-      - name: Collect generated APK
+      - name: Verify generated APK
         run: |
           test -f build/BoomArena-debug.apk
+          "$ANDROID_SDK_ROOT/build-tools/35.0.1/apksigner" verify --verbose build/BoomArena-debug.apk
+          "$ANDROID_SDK_ROOT/build-tools/35.0.1/aapt" dump badging build/BoomArena-debug.apk | head -n 20
           mkdir -p artifacts
           cp build/BoomArena-debug.apk artifacts/BoomArena-debug.apk
           ls -lh artifacts/BoomArena-debug.apk
