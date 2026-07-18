@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#06152a"/>
+      <stop offset="1" stop-color="#122e4c"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="110" fill="url(#g)"/>
+  <path d="M84 355 L176 126 H249 L158 355 Z" fill="#23e6ff"/>
+  <path d="M211 355 L303 126 H377 C425 126 452 151 438 190 C428 219 405 238 374 244 C410 251 428 276 416 311 C406 340 382 355 343 355 Z M300 181 L279 232 H342 C357 232 368 222 373 207 C378 191 369 181 353 181 Z M258 283 L237 335 H321 C338 335 350 325 355 309 C360 292 350 283 333 283 Z" fill="#ffca3a"/>
+  <text x="256" y="430" text-anchor="middle" font-family="Arial, sans-serif" font-size="54" font-weight="700" fill="#ffffff">BOOM ARENA</text>
+</svg>
