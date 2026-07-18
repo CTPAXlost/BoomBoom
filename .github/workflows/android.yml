@@ -62,7 +62,9 @@ jobs:
           echo "GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD=android" >> "$GITHUB_ENV"
 
       - name: Prepare export directory
-        run: mkdir -p build
+        run: |
+          rm -rf build artifacts
+          mkdir -p build artifacts
 
       - name: Export Android APK
         id: export
@@ -77,18 +79,41 @@ jobs:
           use_preset_export_path: true
           verbose: true
 
-      - name: Verify generated APK
+      - name: Locate, verify and stage APK
+        shell: bash
         run: |
-          test -f build/BoomArena-debug.apk
-          "$ANDROID_SDK_ROOT/build-tools/35.0.1/apksigner" verify --verbose build/BoomArena-debug.apk
-          "$ANDROID_SDK_ROOT/build-tools/35.0.1/aapt" dump badging build/BoomArena-debug.apk | head -n 20
-          mkdir -p artifacts
-          cp build/BoomArena-debug.apk artifacts/BoomArena-debug.apk
-          ls -lh artifacts/BoomArena-debug.apk
+          set -euo pipefail
+
+          echo "Files created by the export action:"
+          find build -maxdepth 4 -type f -print | sort
+
+          APK_PATH="$(find build -type f -name 'BoomArena-debug.apk' -print -quit)"
+          if [ -z "$APK_PATH" ]; then
+            APK_PATH="$(find build -type f -name '*.apk' -print -quit)"
+          fi
+          if [ -z "$APK_PATH" ]; then
+            echo "ERROR: Android APK was not found under build/."
+            exit 1
+          fi
+
+          echo "APK_PATH=$APK_PATH"
+          test -s "$APK_PATH"
+          "$ANDROID_SDK_ROOT/build-tools/35.0.1/apksigner" verify --verbose "$APK_PATH"
+          "$ANDROID_SDK_ROOT/build-tools/35.0.1/aapt" dump badging "$APK_PATH" > artifacts/apk-badging.txt
+          head -n 20 artifacts/apk-badging.txt
+
+          cp "$APK_PATH" artifacts/BoomArena-debug.apk
+          test -s artifacts/BoomArena-debug.apk
+          sha256sum artifacts/BoomArena-debug.apk | tee artifacts/BoomArena-debug.apk.sha256
+          ls -lh artifacts/BoomArena-debug.apk artifacts/BoomArena-debug.apk.sha256
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: BoomArena-Android-APK
-          path: artifacts/BoomArena-debug.apk
+          path: |
+            artifacts/BoomArena-debug.apk
+            artifacts/BoomArena-debug.apk.sha256
+            artifacts/apk-badging.txt
           if-no-files-found: error
+          retention-days: 14
