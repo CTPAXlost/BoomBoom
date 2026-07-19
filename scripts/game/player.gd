@@ -24,13 +24,21 @@ var pistol_state = {}
 var using_pistol = false
 var next_fire_time = 0.0
 var reloading = false
+var reload_token = 0
+var reload_animation_time = 0.0
+var reload_animation_duration = 0.0
 var knife_ready_time = 0.0
 var target_under_crosshair = false
+var target_out_of_range = false
+var tracked_target
+var tracked_distance = -1.0
 var recoil = 0.0
 var muzzle_flash_time = 0.0
 var bob_time = 0.0
 var knife_animation_time = 0.0
 var knife_animation_duration = 0.42
+var aiming = false
+var range_message_ready = 0.0
 
 func _ready():
 	_build_body()
@@ -81,12 +89,15 @@ func _face_towards(target):
 
 func _reset_ammo():
 	weapon_states.clear()
-	for id in ["rifle", "shotgun"]:
+	for id in SaveData.main_weapon_ids():
 		var stats = SaveData.get_weapon_stats(id)
 		weapon_states[id] = {"mag": int(stats.magazine), "reserve": int(stats.reserve)}
 	var pistol = SaveData.get_weapon_stats("pistol")
 	pistol_state = {"mag": int(pistol.magazine), "reserve": int(pistol.reserve)}
 	using_pistol = false
+	reloading = false
+	reload_token += 1
+	reload_animation_time = 0.0
 	select_first_available_slot()
 
 func select_first_available_slot():
@@ -105,7 +116,7 @@ func _physics_process(delta):
 	_handle_look(delta)
 	_handle_move(delta)
 	_handle_actions()
-	_update_auto_fire()
+	_update_targeting_and_auto_fire()
 	_update_weapon_visuals(delta)
 
 func _handle_move(delta):
@@ -162,6 +173,7 @@ func _unhandled_input(event):
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 func _handle_actions():
+	aiming = Input.is_action_pressed("aim") or (game_hud and game_hud.aim_held)
 	if Input.is_action_just_pressed("reload") or (game_hud and game_hud.consume_reload()):
 		reload_weapon()
 	if Input.is_action_just_pressed("knife") or (game_hud and game_hud.consume_knife()):
@@ -180,16 +192,27 @@ func _handle_actions():
 	if manual_fire:
 		try_fire()
 
-func _update_auto_fire():
-	var auto_target = _find_auto_target()
-	target_under_crosshair = is_instance_valid(auto_target)
+func _update_targeting_and_auto_fire():
+	tracked_target = _find_crosshair_target()
+	target_under_crosshair = false
+	target_out_of_range = false
+	tracked_distance = -1.0
+	var stats = current_stats()
+	if is_instance_valid(tracked_target):
+		tracked_distance = global_position.distance_to(tracked_target.global_position)
+		if tracked_distance <= float(stats.range):
+			target_under_crosshair = true
+		else:
+			target_out_of_range = true
 	if SaveData.auto_fire and target_under_crosshair:
-		try_fire(auto_target)
+		try_fire(tracked_target)
 	if game_hud:
 		game_hud.crosshair_enemy = target_under_crosshair
+		game_hud.crosshair_out_of_range = target_out_of_range
+		game_hud.update_distance(tracked_distance, float(stats.range), is_instance_valid(tracked_target), target_under_crosshair)
 
-func _find_auto_target():
-	var direct = _raycast_center(70.0)
+func _find_crosshair_target():
+	var direct = _raycast_center(80.0)
 	if not direct.is_empty():
 		var direct_collider = direct.get("collider")
 		if direct_collider is Combatant and direct_collider.alive and direct_collider.team != team:
@@ -197,7 +220,8 @@ func _find_auto_target():
 
 	var viewport_size = get_viewport().get_visible_rect().size
 	var screen_center = viewport_size * 0.5
-	var capture_radius = clamp(min(viewport_size.x, viewport_size.y) * 0.085, 48.0, 78.0)
+	var radius_ratio = 0.055 if aiming else 0.085
+	var capture_radius = clamp(min(viewport_size.x, viewport_size.y) * radius_ratio, 42.0, 78.0)
 	var best
 	var best_distance = capture_radius
 	for candidate in get_tree().get_nodes_in_group("combatants"):
@@ -229,10 +253,19 @@ func current_state():
 func try_fire(assisted_target = null):
 	if reloading or not alive or knife_animation_time > 0.0:
 		return
-	var now = Time.get_ticks_msec() / 1000.0
+	var now = Time.get_ticks_msec() * 0.001
 	if now < next_fire_time:
 		return
 	var stats = current_stats()
+	if is_instance_valid(assisted_target):
+		var assisted_distance = global_position.distance_to(assisted_target.global_position)
+		if assisted_distance > float(stats.range):
+			_show_out_of_range_message(now, stats)
+			return
+	elif is_instance_valid(tracked_target) and target_out_of_range:
+		_show_out_of_range_message(now, stats)
+		return
+
 	var state = current_state()
 	if state.is_empty():
 		return
@@ -261,14 +294,29 @@ func try_fire(assisted_target = null):
 			game.spawn_tracer(muzzle.global_position, result.get("endpoint", muzzle.global_position), stats.color, bool(result.get("hit_enemy", false)))
 
 	_show_muzzle_flash(stats.color)
-	recoil = min(recoil + (0.34 if pellets == 1 else 0.7), 1.0)
-	pitch = clamp(pitch - (0.006 if pellets == 1 else 0.014), deg_to_rad(-68.0), deg_to_rad(62.0))
+	recoil = min(recoil + (0.32 if pellets == 1 else 0.68), 1.0)
+	var recoil_pitch = 0.0045 if aiming else 0.0065
+	if current_weapon_id == "machinegun":
+		recoil_pitch *= 1.15
+	if pellets > 1:
+		recoil_pitch = 0.014
+	pitch = clamp(pitch - recoil_pitch, deg_to_rad(-68.0), deg_to_rad(62.0))
 	head.rotation.x = pitch
 	if game_hud:
 		game_hud.on_weapon_fired(any_hit, any_headshot, float(stats.headshot_multiplier))
 
-	if int(state["mag"]) <= 0 and int(state["reserve"]) <= 0:
-		_switch_to_pistol()
+	if int(state["mag"]) <= 0:
+		if int(state["reserve"]) > 0:
+			reload_weapon()
+		else:
+			_switch_to_pistol()
+
+func _show_out_of_range_message(now, stats):
+	if now < range_message_ready:
+		return
+	range_message_ready = now + 0.7
+	if game_hud:
+		game_hud.show_center_message("ВНЕ ДАЛЬНОСТИ • %d ШАГОВ" % int(stats.range), 0.65)
 
 func _fire_pellet(stats, assisted_target = null):
 	var origin = camera.global_position
@@ -278,6 +326,8 @@ func _fire_pellet(stats, assisted_target = null):
 		var target_point = assisted_target.global_position + Vector3.UP * 1.16
 		direction = (target_point - origin).normalized()
 	var spread = float(stats.spread)
+	if aiming:
+		spread *= float(stats.get("aim_spread_multiplier", 0.5))
 	direction += basis.x * randf_range(-spread, spread)
 	direction += basis.y * randf_range(-spread, spread)
 	direction = direction.normalized()
@@ -293,6 +343,10 @@ func _fire_pellet(stats, assisted_target = null):
 		var collider = hit.get("collider")
 		if collider is Combatant and collider.team != team:
 			var damage = float(stats.damage)
+			var hit_distance = origin.distance_to(endpoint)
+			if current_weapon_id == "shotgun":
+				var distance_ratio = clamp(hit_distance / max(float(stats.range), 0.01), 0.0, 1.0)
+				damage *= lerp(1.0, 0.25, distance_ratio)
 			var head_height = collider.global_position.y + 1.43
 			headshot = endpoint.y >= head_height
 			if headshot:
@@ -309,34 +363,49 @@ func _raycast_center(distance):
 	return get_world_3d().direct_space_state.intersect_ray(query)
 
 func reload_weapon():
-	if reloading:
+	if reloading or not alive:
 		return
 	var state = current_state()
 	var stats = current_stats()
 	if state.is_empty() or int(state["mag"]) >= int(stats.magazine) or int(state["reserve"]) <= 0:
 		return
 	reloading = true
+	reload_token += 1
+	var token = reload_token
+	var reload_weapon_id = current_weapon_id
+	var reload_pistol = using_pistol
+	reload_animation_duration = float(stats.get("reload_time", 1.35))
+	reload_animation_time = reload_animation_duration
 	if game_hud:
-		game_hud.show_center_message("ПЕРЕЗАРЯДКА")
-	await get_tree().create_timer(1.25 if current_weapon_id != "shotgun" else 1.55).timeout
-	if not alive:
-		reloading = false
+		game_hud.show_center_message("ПЕРЕЗАРЯДКА", min(1.0, reload_animation_duration))
+	await get_tree().create_timer(reload_animation_duration).timeout
+	if token != reload_token or not alive:
 		return
-	var needed = int(stats.magazine) - int(state["mag"])
-	var loaded = min(needed, int(state["reserve"]))
-	state["mag"] = int(state["mag"]) + loaded
-	state["reserve"] = int(state["reserve"]) - loaded
-	if using_pistol:
-		pistol_state = state
+	var final_state = pistol_state if reload_pistol else weapon_states.get(reload_weapon_id, {})
+	var final_stats = SaveData.get_weapon_stats(reload_weapon_id)
+	if final_state.is_empty():
+		reloading = false
+		reload_animation_time = 0.0
+		return
+	var needed = int(final_stats.magazine) - int(final_state["mag"])
+	var loaded = min(needed, int(final_state["reserve"]))
+	final_state["mag"] = int(final_state["mag"]) + loaded
+	final_state["reserve"] = int(final_state["reserve"]) - loaded
+	if reload_pistol:
+		pistol_state = final_state
 	else:
-		weapon_states[current_weapon_id] = state
+		weapon_states[reload_weapon_id] = final_state
 	reloading = false
+	reload_animation_time = 0.0
 
 func knife_attack():
-	var now = Time.get_ticks_msec() / 1000.0
+	var now = Time.get_ticks_msec() * 0.001
 	if now < knife_ready_time or not alive:
 		return
 	knife_ready_time = now + 0.9
+	reload_token += 1
+	reloading = false
+	reload_animation_time = 0.0
 	knife_animation_time = knife_animation_duration
 	if game_hud:
 		game_hud.flash_knife()
@@ -360,7 +429,9 @@ func select_slot(index):
 	current_slot = index
 	current_weapon_id = id
 	using_pistol = false
+	reload_token += 1
 	reloading = false
+	reload_animation_time = 0.0
 	_update_weapon_model()
 
 func _switch_to_pistol():
@@ -370,19 +441,20 @@ func _switch_to_pistol():
 		return
 	using_pistol = true
 	current_weapon_id = "pistol"
+	reload_token += 1
 	reloading = false
+	reload_animation_time = 0.0
 	_update_weapon_model()
 	if game_hud:
 		game_hud.show_center_message("ПИСТОЛЕТ")
-
 
 func _build_knife_model():
 	knife_root = Node3D.new()
 	knife_root.visible = false
 	camera.add_child(knife_root)
 	_add_knife_box(Vector3(0.0, -0.03, 0.0), Vector3(0.13, 0.18, 0.46), Color("20262d"), Vector3(-8, 0, 0))
-	_add_knife_box(Vector3(0.0, 0.0, -0.34), Vector3(0.075, 0.055, 0.52), Color("dce8ef"), Vector3(0, 0, 0))
-	_add_knife_box(Vector3(0.0, 0.0, -0.62), Vector3(0.02, 0.045, 0.18), Color("f5fbff"), Vector3(0, 0, 0))
+	_add_knife_box(Vector3(0.0, 0.0, -0.34), Vector3(0.075, 0.055, 0.52), Color("dce8ef"))
+	_add_knife_box(Vector3(0.0, 0.0, -0.62), Vector3(0.02, 0.045, 0.18), Color("f5fbff"))
 
 func _add_knife_box(pos, box_size, color, rotation_deg = Vector3.ZERO):
 	var mesh_instance = MeshInstance3D.new()
@@ -445,6 +517,13 @@ func _update_weapon_model():
 		_add_weapon_box(Vector3(0, -0.15, 0.0), Vector3(0.12, 0.28, 0.16), Color("20262d"), Vector3(-12, 0, 0))
 		_add_weapon_box(Vector3(0, -0.04, 0.34), Vector3(0.16, 0.15, 0.28), Color("5d3b24"))
 		_create_muzzle(Vector3(0, 0.015, -0.83))
+	elif current_weapon_id == "machinegun":
+		_add_weapon_box(Vector3(0, 0, -0.08), Vector3(0.24, 0.22, 0.78), body_color)
+		_add_weapon_box(Vector3(0, 0.02, -0.62), Vector3(0.1, 0.1, 0.55), Color("252b33"))
+		_add_weapon_box(Vector3(0, -0.22, 0.02), Vector3(0.15, 0.38, 0.2), Color("20262d"), Vector3(-10, 0, 0))
+		_add_weapon_box(Vector3(0.0, -0.16, 0.29), Vector3(0.24, 0.32, 0.28), Color("333b45"), Vector3(8, 0, 0))
+		_add_weapon_box(Vector3(0, 0.14, -0.24), Vector3(0.1, 0.09, 0.32), Color("171b22"))
+		_create_muzzle(Vector3(0, 0.02, -0.92))
 	elif current_weapon_id == "pistol":
 		_add_weapon_box(Vector3(0, 0, -0.1), Vector3(0.16, 0.18, 0.42), body_color)
 		_add_weapon_box(Vector3(0, -0.18, 0.02), Vector3(0.13, 0.32, 0.16), Color("20262d"), Vector3(-10, 0, 0))
@@ -510,13 +589,26 @@ func _show_muzzle_flash(color):
 
 func _update_weapon_visuals(delta):
 	_update_knife_animation(delta)
+	var stats = current_stats()
+	var target_fov = float(stats.get("aim_fov", 60.0)) if aiming else 82.0
+	camera.fov = lerp(camera.fov, target_fov, min(1.0, delta * 11.0))
 	recoil = move_toward(recoil, 0.0, delta * 5.2)
+	if reload_animation_time > 0.0:
+		reload_animation_time = max(0.0, reload_animation_time - delta)
 	if is_instance_valid(weapon_root):
 		var move_amount = Vector2(velocity.x, velocity.z).length() / speed if alive else 0.0
 		var sway_x = sin(bob_time * 0.5) * 0.012 * move_amount
 		var sway_y = abs(cos(bob_time)) * 0.012 * move_amount
-		var target_pos = Vector3(0.34 + sway_x, -0.31 - sway_y - recoil * 0.055, -0.58 + recoil * 0.09)
-		weapon_root.position = weapon_root.position.lerp(target_pos, min(1.0, delta * 18.0))
+		var base_position = Vector3(0.03, -0.2, -0.53) if aiming else Vector3(0.34, -0.31, -0.58)
+		var target_position = base_position + Vector3(sway_x, -sway_y - recoil * 0.055, recoil * 0.09)
+		var target_rotation = Vector3(-2.0, 0.0, 0.0)
+		if reload_animation_time > 0.0 and reload_animation_duration > 0.0:
+			var progress = 1.0 - reload_animation_time / reload_animation_duration
+			var arc = sin(progress * PI)
+			target_position += Vector3(0.2 * arc, -0.36 * arc, 0.08 * arc)
+			target_rotation = Vector3(-18.0 * arc, 0.0, 32.0 * arc)
+		weapon_root.position = weapon_root.position.lerp(target_position, min(1.0, delta * 18.0))
+		weapon_root.rotation_degrees = weapon_root.rotation_degrees.lerp(target_rotation, min(1.0, delta * 16.0))
 	if muzzle_flash_time > 0.0:
 		muzzle_flash_time -= delta
 	else:
@@ -553,5 +645,5 @@ func ammo_text():
 func weapon_display_name():
 	var stats = SaveData.get_weapon_stats(current_weapon_id)
 	if current_weapon_id == "pistol":
-		return stats.get("name", "Оружие")
+		return "%s • %d шагов" % [stats.get("name", "Оружие"), int(stats.range)]
 	return "%s • ур.%d • мощь %d" % [stats.get("name", "Оружие"), int(stats.level), int(stats.power)]

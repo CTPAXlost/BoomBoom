@@ -1,7 +1,7 @@
 extends Node3D
 class_name BoomArena
 
-signal match_finished(summary)
+signal match_finished
 
 const PlayerScript = preload("res://scripts/game/player.gd")
 const BotScript = preload("res://scripts/game/bot.gd")
@@ -9,9 +9,10 @@ const HUDScript = preload("res://scripts/ui/mobile_hud.gd")
 
 var blue_score = 0
 var red_score = 0
-var time_left = 180.0
-var score_limit = 20
+var match_elapsed = 0.0
+var score_limit = 25
 var match_active = true
+var results_visible = false
 var match_coins = 0
 var player
 var hud
@@ -24,21 +25,20 @@ func _ready():
 	_build_environment()
 	hud = HUDScript.new()
 	add_child(hud)
+	hud.continue_pressed.connect(_on_continue_pressed)
 	_spawn_teams()
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-	hud.show_center_message("СТАРАЯ ФЕРМА")
+	hud.show_center_message("ПЕРВЫЕ 25 УСТРАНЕНИЙ ПОБЕЖДАЮТ", 2.0)
 
 func _process(delta):
 	_update_clouds(delta)
 	if not match_active:
 		return
-	time_left = max(0.0, time_left - delta)
-	hud.update_match(blue_score, red_score, time_left, match_coins)
-	if time_left <= 0.0 or blue_score >= score_limit or red_score >= score_limit:
-		finish_match()
+	match_elapsed += delta
+	hud.update_match(blue_score, red_score, match_elapsed, match_coins, score_limit)
 
 func _unhandled_input(event):
-	if event.is_action_pressed("ui_cancel"):
+	if event.is_action_pressed("ui_cancel") and match_active:
 		finish_match(true)
 
 func _build_environment():
@@ -246,16 +246,17 @@ func _spawn_teams():
 	player = PlayerScript.new()
 	add_child(player)
 	player.setup_player(self, 0, "Игрок", blue_spawns[0], hud)
+	var weapons = SaveData.main_weapon_ids()
 	var blue_names = ["Беркут", "Неон", "Шторм"]
 	for i in range(3):
 		var bot = BotScript.new()
 		add_child(bot)
-		bot.setup_bot(self, 0, blue_names[i], blue_spawns[i + 1], "rifle" if i < 2 else "shotgun")
+		bot.setup_bot(self, 0, blue_names[i], blue_spawns[i + 1], weapons.pick_random())
 	var red_names = ["Кобра", "Титан", "Рейд", "Фантом"]
 	for i in range(4):
 		var bot = BotScript.new()
 		add_child(bot)
-		bot.setup_bot(self, 1, red_names[i], red_spawns[i], "shotgun" if i == 1 else "rifle")
+		bot.setup_bot(self, 1, red_names[i], red_spawns[i], weapons.pick_random())
 
 func find_nearest_enemy(actor):
 	var best
@@ -272,17 +273,46 @@ func find_nearest_enemy(actor):
 func register_kill(killer, victim):
 	if not match_active:
 		return
-	if victim.team == 0:
-		red_score += 1
+	victim.deaths += 1
+	var valid_killer = is_instance_valid(killer) and killer is Combatant and killer.team != victim.team
+	if valid_killer:
+		killer.kills += 1
+		if killer.team == 0:
+			blue_score += 1
+		else:
+			red_score += 1
 	else:
-		blue_score += 1
+		if victim.team == 0:
+			red_score += 1
+		else:
+			blue_score += 1
+
+	var assistants = []
+	if valid_killer:
+		assistants = victim.collect_assist_candidates(killer, 10.0)
+	for assister in assistants:
+		assister.assists += 1
+		if assister == player:
+			match_coins += 10
+	victim.clear_damage_contributors()
+
 	var killer_name = "Окружение"
-	if is_instance_valid(killer):
+	if valid_killer:
 		killer_name = killer.actor_name
 		if killer == player:
 			match_coins += 20
-	hud.show_center_message("%s → %s" % [killer_name, victim.actor_name])
-	_respawn_later(victim)
+	var feed = "%s → %s" % [killer_name, victim.actor_name]
+	if not assistants.is_empty():
+		var assist_names = []
+		for assister in assistants:
+			assist_names.append(assister.actor_name)
+		feed += "  • ассист: %s" % ", ".join(assist_names)
+	hud.show_center_message(feed, 1.25)
+
+	if blue_score >= score_limit or red_score >= score_limit:
+		finish_match(false)
+	else:
+		_respawn_later(victim)
 
 func _respawn_later(actor):
 	await get_tree().create_timer(2.6).timeout
@@ -296,6 +326,13 @@ func finish_match(aborted = false):
 		return
 	match_active = false
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	for actor in get_tree().get_nodes_in_group("combatants"):
+		if is_instance_valid(actor):
+			actor.velocity = Vector3.ZERO
+			actor.set_physics_process(false)
+	if is_instance_valid(hud):
+		hud.release_controls()
+
 	var won = blue_score > red_score
 	var draw = blue_score == red_score
 	var reward = match_coins
@@ -310,9 +347,43 @@ func finish_match(aborted = false):
 	var title = "БОЙ ПРЕРВАН"
 	if not aborted:
 		title = "НИЧЬЯ" if draw else ("ПОБЕДА!" if won else "ПОРАЖЕНИЕ")
-	var summary = "%s\nСчёт: %d — %d\nЗаработано монет: %d" % [title, blue_score, red_score, reward]
-	await get_tree().create_timer(0.25).timeout
-	match_finished.emit(summary)
+	await get_tree().create_timer(0.45).timeout
+	results_visible = true
+	hud.show_match_results(title, blue_score, red_score, _collect_statistics(), reward, match_elapsed)
+
+func _collect_statistics():
+	var blue_rows = []
+	var red_rows = []
+	for actor in get_tree().get_nodes_in_group("combatants"):
+		if not is_instance_valid(actor):
+			continue
+		var row = {
+			"team": actor.team,
+			"name": actor.actor_name,
+			"kills": actor.kills,
+			"assists": actor.assists,
+			"deaths": actor.deaths,
+			"player": actor == player
+		}
+		if actor.team == 0:
+			blue_rows.append(row)
+		else:
+			red_rows.append(row)
+	blue_rows.sort_custom(_sort_statistics)
+	red_rows.sort_custom(_sort_statistics)
+	return blue_rows + red_rows
+
+func _sort_statistics(a, b):
+	if int(a["kills"]) == int(b["kills"]):
+		if int(a["assists"]) == int(b["assists"]):
+			return int(a["deaths"]) < int(b["deaths"])
+		return int(a["assists"]) > int(b["assists"])
+	return int(a["kills"]) > int(b["kills"])
+
+func _on_continue_pressed():
+	if not results_visible:
+		return
+	match_finished.emit()
 
 func spawn_tracer(start, finish, color, hit_enemy = false):
 	var direction = finish - start

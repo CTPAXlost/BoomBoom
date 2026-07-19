@@ -5,11 +5,10 @@ signal start_match
 var coins_label
 var shop_panel
 var settings_panel
-var result_popup
+var admin_panel
 var active_slot = 0
 var slot_buttons = []
 var weapon_cards = {}
-var armor_card
 var armor_button
 var armor_info
 var sensitivity_label
@@ -17,6 +16,8 @@ var sensitivity_slider
 var fps_buttons = {}
 var auto_toggle
 var loadout_status
+var admin_coins
+var admin_status
 
 func _ready():
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -25,7 +26,7 @@ func _ready():
 	_build_main_panel()
 	_build_shop()
 	_build_settings()
-	_build_result_popup()
+	_build_admin()
 	_show_shop()
 	refresh()
 
@@ -77,7 +78,7 @@ func _build_header():
 	var title = make_label("BOOM ARENA", 42, Color("23e6ff"))
 	title.position = Vector2(48, 28)
 	add_child(title)
-	var subtitle = make_label("МОБИЛЬНЫЙ FPS • ПРОТОТИП 0.5", 18, Color("9db4c7"))
+	var subtitle = make_label("МОБИЛЬНЫЙ FPS • ПРОТОТИП 0.6", 18, Color("9db4c7"))
 	subtitle.position = Vector2(51, 83)
 	add_child(subtitle)
 	coins_label = make_label("", 28, Color("ffca3a"))
@@ -93,40 +94,44 @@ func _build_main_panel():
 	panel.add_theme_stylebox_override("panel", panel_style())
 	add_child(panel)
 	var box = VBoxContainer.new()
-	box.add_theme_constant_override("separation", 9)
-	box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 28)
+	box.add_theme_constant_override("separation", 7)
+	box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 25)
 	panel.add_child(box)
-	box.add_child(make_label("КОМАНДНЫЙ БОЙ 4 × 4", 30))
-	var desc = make_label("Небольшая карта «Старая ферма».\nТы и 3 союзника против команды из 4 ботов.", 19, Color("b8c9d8"))
+	box.add_child(make_label("КОМАНДНЫЙ БОЙ 4 × 4", 29))
+	var desc = make_label("Побеждает команда, первой набравшая 25 устранений. После боя открывается полная статистика.", 18, Color("b8c9d8"))
 	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	desc.custom_minimum_size = Vector2(410, 54)
+	desc.custom_minimum_size = Vector2(420, 54)
 	box.add_child(desc)
 	var start = Button.new()
 	start.text = "НАЧАТЬ БОЙ"
-	start.custom_minimum_size = Vector2(410, 60)
+	start.custom_minimum_size = Vector2(420, 58)
 	style_button(start, Color("23e6ff"))
 	start.pressed.connect(func(): start_match.emit())
 	box.add_child(start)
 	var shop = Button.new()
 	shop.text = "АРСЕНАЛ И БРОНЯ"
-	shop.custom_minimum_size = Vector2(410, 48)
+	shop.custom_minimum_size = Vector2(420, 44)
 	style_button(shop, Color("ffca3a"))
 	shop.pressed.connect(_show_shop)
 	box.add_child(shop)
 	var settings = Button.new()
 	settings.text = "⚙  НАСТРОЙКИ"
-	settings.custom_minimum_size = Vector2(410, 48)
+	settings.custom_minimum_size = Vector2(420, 44)
 	style_button(settings, Color("b48cff"))
 	settings.pressed.connect(_show_settings)
 	box.add_child(settings)
-	var status_title = make_label("ТЕКУЩЕЕ СНАРЯЖЕНИЕ", 18, Color("9db4c7"))
-	box.add_child(status_title)
-	loadout_status = make_label("", 18, Color("d8e6f0"))
-	loadout_status.name = "LoadoutStatus"
+	var admin = Button.new()
+	admin.text = "АДМИН • ТЕСТОВЫЕ МОНЕТЫ"
+	admin.custom_minimum_size = Vector2(420, 44)
+	style_button(admin, Color("ef476f"))
+	admin.pressed.connect(_show_admin)
+	box.add_child(admin)
+	box.add_child(make_label("ТЕКУЩЕЕ СНАРЯЖЕНИЕ", 17, Color("9db4c7")))
+	loadout_status = make_label("", 17, Color("d8e6f0"))
 	loadout_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	loadout_status.custom_minimum_size = Vector2(410, 54)
+	loadout_status.custom_minimum_size = Vector2(420, 50)
 	box.add_child(loadout_status)
-	var controls = make_label("Слева — движение. Справа — обзор. Отдельные кнопки огня, ножа и перезарядки.", 15, Color("7893a8"))
+	var controls = make_label("Слева — движение. Справа — обзор. Есть огонь, прицел, нож и перезарядка.", 14, Color("7893a8"))
 	controls.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(controls)
 
@@ -137,17 +142,17 @@ func _build_shop():
 	shop_panel.add_theme_stylebox_override("panel", panel_style(Color("0b1825")))
 	add_child(shop_panel)
 	var root = VBoxContainer.new()
-	root.add_theme_constant_override("separation", 10)
-	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 20)
+	root.add_theme_constant_override("separation", 8)
+	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 18)
 	shop_panel.add_child(root)
-	root.add_child(make_label("АРСЕНАЛ И БРОНЯ", 29, Color("ffca3a")))
+	root.add_child(make_label("АРСЕНАЛ И БРОНЯ", 28, Color("ffca3a")))
 	var scroll = ScrollContainer.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	root.add_child(scroll)
 	var content = VBoxContainer.new()
 	content.custom_minimum_size = Vector2(620, 0)
-	content.add_theme_constant_override("separation", 10)
+	content.add_theme_constant_override("separation", 9)
 	scroll.add_child(content)
 	content.add_child(make_label("Выбери слот, затем оружие:", 18, Color("9db4c7")))
 	var slots = HBoxContainer.new()
@@ -169,16 +174,17 @@ func _build_shop():
 		refresh()
 	)
 	content.add_child(clear_button)
-	var cards = HBoxContainer.new()
-	cards.add_theme_constant_override("separation", 12)
+	var cards = GridContainer.new()
+	cards.columns = 2
+	cards.add_theme_constant_override("h_separation", 12)
+	cards.add_theme_constant_override("v_separation", 12)
 	content.add_child(cards)
-	for id in ["rifle", "shotgun"]:
+	for id in SaveData.main_weapon_ids():
 		var card = _create_weapon_card(id)
 		cards.add_child(card)
 		weapon_cards[id] = card
-	armor_card = _create_armor_card()
-	content.add_child(armor_card)
-	var note = make_label("Броня восстанавливается до 100 после каждого возрождения. Сначала урон принимает броня, затем здоровье.", 15, Color("7893a8"))
+	content.add_child(_create_armor_card())
+	var note = make_label("Дальность: автомат 20 шагов, дробовик 10, пулемёт 35. Дробовик наносит максимум урона в упор.", 15, Color("7893a8"))
 	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	note.custom_minimum_size = Vector2(610, 48)
 	content.add_child(note)
@@ -186,29 +192,29 @@ func _build_shop():
 func _create_weapon_card(id):
 	var catalog = SaveData.weapon_catalog()[id]
 	var card = PanelContainer.new()
-	card.custom_minimum_size = Vector2(299, 255)
+	card.custom_minimum_size = Vector2(299, 270)
 	card.add_theme_stylebox_override("panel", panel_style(Color("102436")))
 	var box = VBoxContainer.new()
 	box.name = "Content"
-	box.add_theme_constant_override("separation", 6)
-	box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 13)
+	box.add_theme_constant_override("separation", 5)
+	box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 12)
 	card.add_child(box)
-	var name_label = make_label(catalog.name, 22, catalog.color)
-	name_label.name = "Name"
+	var name_label = make_label(catalog.name, 21, catalog.color)
 	box.add_child(name_label)
-	var info = make_label("", 16, Color("b8c9d8"))
+	var info = make_label("", 15, Color("b8c9d8"))
 	info.name = "Info"
-	info.custom_minimum_size = Vector2(270, 103)
+	info.custom_minimum_size = Vector2(270, 120)
+	info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(info)
 	var action = Button.new()
 	action.name = "Action"
-	action.custom_minimum_size = Vector2(270, 42)
+	action.custom_minimum_size = Vector2(270, 40)
 	style_button(action, catalog.color)
 	action.pressed.connect(_weapon_action.bind(id))
 	box.add_child(action)
 	var upgrade = Button.new()
 	upgrade.name = "Upgrade"
-	upgrade.custom_minimum_size = Vector2(270, 40)
+	upgrade.custom_minimum_size = Vector2(270, 38)
 	style_button(upgrade, Color("8cff98"))
 	upgrade.pressed.connect(func():
 		SaveData.upgrade_weapon(id)
@@ -277,9 +283,9 @@ func _build_settings():
 		button.pressed.connect(_on_fps_selected.bind(fps))
 		fps_row.add_child(button)
 		fps_buttons[fps] = button
-	var fps_note = make_label("30 FPS экономит заряд. 60 FPS — основной режим. 120 FPS требует экрана 120 Гц и сильнее нагревает телефон.", 16, Color("7893a8"))
+	var fps_note = make_label("30 FPS экономит заряд. 60 FPS — основной режим. 120 FPS требует экрана 120 Гц.", 16, Color("7893a8"))
 	fps_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	fps_note.custom_minimum_size = Vector2(600, 55)
+	fps_note.custom_minimum_size = Vector2(600, 50)
 	box.add_child(fps_note)
 	auto_toggle = CheckButton.new()
 	auto_toggle.text = "Автострельба при наведении на противника"
@@ -287,7 +293,7 @@ func _build_settings():
 	auto_toggle.add_theme_font_size_override("font_size", 20)
 	auto_toggle.toggled.connect(_on_auto_toggled)
 	box.add_child(auto_toggle)
-	var orientation = make_label("Экран: автоматический поворот только между двумя альбомными положениями.", 16, Color("9db4c7"))
+	var orientation = make_label("Экран автоматически поворачивается между двумя альбомными положениями.", 16, Color("9db4c7"))
 	orientation.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(orientation)
 	var back = Button.new()
@@ -297,18 +303,73 @@ func _build_settings():
 	back.pressed.connect(_show_shop)
 	box.add_child(back)
 
+func _build_admin():
+	admin_panel = PanelContainer.new()
+	admin_panel.position = Vector2(555, 135)
+	admin_panel.size = Vector2(675, 525)
+	admin_panel.add_theme_stylebox_override("panel", panel_style(Color("1d111a")))
+	add_child(admin_panel)
+	var box = VBoxContainer.new()
+	box.add_theme_constant_override("separation", 18)
+	box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 30)
+	admin_panel.add_child(box)
+	box.add_child(make_label("АДМИН-ПАНЕЛЬ", 31, Color("ef476f")))
+	var warning = make_label("Локальная тестовая функция. Введи нужное количество монет и нажми «Установить».", 18, Color("d8e6f0"))
+	warning.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	box.add_child(warning)
+	admin_coins = SpinBox.new()
+	admin_coins.min_value = 0
+	admin_coins.max_value = 999999999
+	admin_coins.step = 1
+	admin_coins.allow_greater = true
+	admin_coins.value = SaveData.coins
+	admin_coins.custom_minimum_size = Vector2(600, 58)
+	admin_coins.add_theme_font_size_override("font_size", 24)
+	box.add_child(admin_coins)
+	var set_button = Button.new()
+	set_button.text = "УСТАНОВИТЬ МОНЕТЫ"
+	set_button.custom_minimum_size = Vector2(600, 58)
+	style_button(set_button, Color("ef476f"))
+	set_button.pressed.connect(_admin_set_coins)
+	box.add_child(set_button)
+	var quick = HBoxContainer.new()
+	quick.add_theme_constant_override("separation", 12)
+	box.add_child(quick)
+	for amount in [1000, 10000, 100000]:
+		var button = Button.new()
+		button.text = "+%d" % amount
+		button.custom_minimum_size = Vector2(190, 50)
+		style_button(button, Color("ffca3a"))
+		button.pressed.connect(_admin_add_coins.bind(amount))
+		quick.add_child(button)
+	admin_status = make_label("", 19, Color("8cff98"))
+	admin_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(admin_status)
+	var back = Button.new()
+	back.text = "ВЕРНУТЬСЯ В АРСЕНАЛ"
+	back.custom_minimum_size = Vector2(600, 54)
+	style_button(back, Color("23e6ff"))
+	back.pressed.connect(_show_shop)
+	box.add_child(back)
+
 func _show_shop():
-	if is_instance_valid(shop_panel):
-		shop_panel.visible = true
-	if is_instance_valid(settings_panel):
-		settings_panel.visible = false
+	shop_panel.visible = true
+	settings_panel.visible = false
+	admin_panel.visible = false
 	refresh()
 
 func _show_settings():
-	if is_instance_valid(shop_panel):
-		shop_panel.visible = false
-	if is_instance_valid(settings_panel):
-		settings_panel.visible = true
+	shop_panel.visible = false
+	settings_panel.visible = true
+	admin_panel.visible = false
+	refresh()
+
+func _show_admin():
+	shop_panel.visible = false
+	settings_panel.visible = false
+	admin_panel.visible = true
+	admin_coins.value = SaveData.coins
+	admin_status.text = ""
 	refresh()
 
 func _select_slot(index):
@@ -334,9 +395,8 @@ func refresh():
 			weapon_name = SaveData.weapon_catalog()[id].type
 			equipped_names.append(weapon_name)
 		slot_buttons[i].text = "%sСЛОТ %d\n%s" % ["> " if active_slot == i else "", i + 1, weapon_name]
-	if is_instance_valid(loadout_status):
-		var equipment_text = ", ".join(equipped_names) if not equipped_names.is_empty() else "нет основного оружия"
-		loadout_status.text = "Оружие: %s\nБроня: %s • FPS: %d" % [equipment_text, "100" if SaveData.armor_owned else "нет", SaveData.target_fps]
+	var equipment_text = ", ".join(equipped_names) if not equipped_names.is_empty() else "нет основного оружия"
+	loadout_status.text = "Оружие: %s\nБроня: %s • FPS: %d" % [equipment_text, "100" if SaveData.armor_owned else "нет", SaveData.target_fps]
 	for id in weapon_cards:
 		var card = weapon_cards[id]
 		var catalog = SaveData.weapon_catalog()[id]
@@ -345,7 +405,8 @@ func refresh():
 		var owned = bool(SaveData.owned_weapons.get(id, false))
 		var info = card.get_node("Content/Info")
 		var head_damage = float(stats.damage) * float(stats.headshot_multiplier)
-		info.text = "%s • уровень %d/5\nМощь %d • урон %.0f\nВ голову %.0f (×%.2f) • магазин %d" % [catalog.type, level, int(stats.power), float(stats.damage), head_damage, float(stats.headshot_multiplier), int(catalog.magazine)]
+		var damage_text = "урон %.0f × %d дробин" % [float(stats.damage), int(stats.pellets)] if id == "shotgun" else "урон %.0f" % float(stats.damage)
+		info.text = "%s • уровень %d/5\nМощь %d • %s\nВ голову %.0f (×%.2f)\nДальность %d шагов • магазин %d" % [catalog.type, level, int(stats.power), damage_text, head_damage, float(stats.headshot_multiplier), int(stats.range), int(catalog.magazine)]
 		var action = card.get_node("Content/Action")
 		if owned:
 			action.text = "ПОСТАВИТЬ В СЛОТ %d" % (active_slot + 1)
@@ -361,51 +422,31 @@ func refresh():
 		else:
 			upgrade.text = "УЛУЧШИТЬ ДО %d ЗА %d" % [level + 1, SaveData.upgrade_cost(id)]
 			upgrade.disabled = false
-	if is_instance_valid(armor_button):
-		if SaveData.armor_owned:
-			armor_button.text = "КУПЛЕНО\n+100 БРОНИ"
-			armor_button.disabled = true
-			armor_info.text = "Куплено. Броня активна в каждом бою."
-		else:
-			armor_button.text = "КУПИТЬ ЗА %d" % SaveData.ARMOR_PRICE
-			armor_button.disabled = false
-			armor_info.text = "100 единиц брони поверх HP"
-	if is_instance_valid(sensitivity_label):
-		sensitivity_label.text = "ЧУВСТВИТЕЛЬНОСТЬ СЕНСОРА: %.2f" % SaveData.look_sensitivity
-	if is_instance_valid(sensitivity_slider):
-		sensitivity_slider.set_value_no_signal(SaveData.look_sensitivity)
+	if SaveData.armor_owned:
+		armor_button.text = "КУПЛЕНО\n+100 БРОНИ"
+		armor_button.disabled = true
+		armor_info.text = "Куплено. Броня активна в каждом бою."
+	else:
+		armor_button.text = "КУПИТЬ ЗА %d" % SaveData.ARMOR_PRICE
+		armor_button.disabled = false
+		armor_info.text = "100 единиц брони поверх HP"
+	sensitivity_label.text = "ЧУВСТВИТЕЛЬНОСТЬ СЕНСОРА: %.2f" % SaveData.look_sensitivity
+	sensitivity_slider.set_value_no_signal(SaveData.look_sensitivity)
 	for fps in fps_buttons:
 		fps_buttons[fps].set_pressed_no_signal(int(fps) == SaveData.target_fps)
-	if is_instance_valid(auto_toggle):
-		auto_toggle.set_pressed_no_signal(SaveData.auto_fire)
+	auto_toggle.set_pressed_no_signal(SaveData.auto_fire)
+	if is_instance_valid(admin_coins) and not admin_coins.has_focus():
+		admin_coins.value = SaveData.coins
 
-func _build_result_popup():
-	result_popup = PanelContainer.new()
-	result_popup.visible = false
-	result_popup.position = Vector2(345, 205)
-	result_popup.size = Vector2(590, 300)
-	result_popup.add_theme_stylebox_override("panel", panel_style(Color("102436")))
-	add_child(result_popup)
-	var box = VBoxContainer.new()
-	box.alignment = BoxContainer.ALIGNMENT_CENTER
-	box.add_theme_constant_override("separation", 22)
-	box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 30)
-	result_popup.add_child(box)
-	var label = make_label("", 28, Color("23e6ff"))
-	label.name = "Result"
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	box.add_child(label)
-	var close = Button.new()
-	close.text = "ПРОДОЛЖИТЬ"
-	close.custom_minimum_size = Vector2(400, 60)
-	style_button(close)
-	close.pressed.connect(func(): result_popup.visible = false)
-	box.add_child(close)
+func _admin_set_coins():
+	SaveData.set_coins(int(admin_coins.value))
+	admin_status.text = "Установлено: %d монет" % SaveData.coins
+	refresh()
 
-func show_result(text):
-	result_popup.get_node("VBoxContainer/Result").text = text
-	result_popup.visible = true
+func _admin_add_coins(amount):
+	SaveData.add_coins(amount)
+	admin_status.text = "Добавлено %d монет" % amount
+	refresh()
 
 func _on_sensitivity_changed(value):
 	SaveData.look_sensitivity = float(value)

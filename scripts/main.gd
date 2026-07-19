@@ -37,30 +37,32 @@ func _ensure_input_actions():
 			var event = InputEventKey.new()
 			event.physical_keycode = keys[action]
 			InputMap.action_add_event(action, event)
-	if not InputMap.has_action("fire"):
-		InputMap.add_action("fire")
-	var has_mouse = false
-	for existing in InputMap.action_get_events("fire"):
-		if existing is InputEventMouseButton and existing.button_index == MOUSE_BUTTON_LEFT:
-			has_mouse = true
-	if not has_mouse:
+	_ensure_mouse_action("fire", MOUSE_BUTTON_LEFT)
+	_ensure_mouse_action("aim", MOUSE_BUTTON_RIGHT)
+
+func _ensure_mouse_action(action, button_index):
+	if not InputMap.has_action(action):
+		InputMap.add_action(action)
+	var exists = false
+	for existing in InputMap.action_get_events(action):
+		if existing is InputEventMouseButton and existing.button_index == button_index:
+			exists = true
+	if not exists:
 		var mouse = InputEventMouseButton.new()
-		mouse.button_index = MOUSE_BUTTON_LEFT
-		InputMap.action_add_event("fire", mouse)
+		mouse.button_index = button_index
+		InputMap.action_add_event(action, mouse)
 
 func clear_screen():
 	if is_instance_valid(current_screen):
 		current_screen.queue_free()
 	current_screen = null
 
-func show_menu(result_text = ""):
+func show_menu():
 	clear_screen()
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	current_screen = MenuScreen.new()
 	add_child(current_screen)
 	current_screen.start_match.connect(start_match)
-	if result_text != "":
-		current_screen.call_deferred("show_result", result_text)
 
 func start_match():
 	clear_screen()
@@ -68,5 +70,5 @@ func start_match():
 	add_child(current_screen)
 	current_screen.match_finished.connect(_on_match_finished)
 
-func _on_match_finished(summary):
-	show_menu(summary)
+func _on_match_finished():
+	show_menu()

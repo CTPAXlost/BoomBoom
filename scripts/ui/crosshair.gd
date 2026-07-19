@@ -5,10 +5,12 @@ var hud
 
 func _draw():
 	var enemy = hud and hud.crosshair_enemy
-	var color = Color("ef476f") if enemy else Color.WHITE
+	var out_of_range = hud and hud.crosshair_out_of_range
+	var color = Color("ef476f") if enemy else (Color("ff9f1c") if out_of_range else Color.WHITE)
 	var kick = hud.crosshair_kick if hud else 0.0
-	var gap = 7.0 + kick * 11.0
-	var arm = 10.0
+	var aiming = hud and hud.aim_held
+	var gap = (4.5 if aiming else 7.0) + kick * 11.0
+	var arm = 9.0 if aiming else 10.0
 	var c = size * 0.5
 	draw_line(c + Vector2(0, -gap - arm), c + Vector2(0, -gap), color, 3.0)
 	draw_line(c + Vector2(0, gap), c + Vector2(0, gap + arm), color, 3.0)

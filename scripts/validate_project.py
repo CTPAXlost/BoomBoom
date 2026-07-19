@@ -24,6 +24,7 @@ required = [
     "scripts/ui/touch_action_button.gd",
     "scripts/ui/crosshair.gd",
     "signing/boomarena-debug.keystore",
+    "gdlintrc",
 ]
 errors: list[str] = []
 
@@ -134,8 +135,8 @@ for required_setting in [
     'export_path="build/BoomArena-debug.apk"',
     'architectures/arm64-v8a=true',
     'package/unique_name="com.franbpm.boomarena"',
-    'version/code=5',
-    'version/name="0.5.0"',
+    'version/code=6',
+    'version/name="0.6.0"',
 ]:
     if required_setting not in preset_text:
         errors.append(f"Android export preset is missing: {required_setting}")
@@ -144,6 +145,20 @@ if "gradle_build/use_gradle_build=false" in preset_text:
     for invalid in ("gradle_build/min_sdk=", "gradle_build/target_sdk="):
         if invalid in preset_text:
             errors.append(f"{invalid[:-1]} cannot be overridden while Gradle build is disabled")
+
+arena_path = root / "scripts/game/arena.gd"
+if arena_path.is_file():
+    arena_text = arena_path.read_text(encoding="utf-8")
+    for required_rule in ("score_limit = 25", "show_match_results", "collect_assist_candidates"):
+        if required_rule not in arena_text:
+            errors.append(f"Match rule is missing from arena.gd: {required_rule}")
+
+save_path = root / "autoload/save_data.gd"
+if save_path.is_file():
+    save_text = save_path.read_text(encoding="utf-8")
+    for required_weapon_rule in ('"machinegun"', '"range": 20.0', '"range": 10.0', '"range": 35.0'):
+        if required_weapon_rule not in save_text:
+            errors.append(f"Weapon rule is missing from save_data.gd: {required_weapon_rule}")
 
 combatant_path = root / "scripts/game/combatant.gd"
 if combatant_path.is_file():

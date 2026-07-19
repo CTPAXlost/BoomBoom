@@ -20,6 +20,11 @@ jobs:
       - name: Validate repository structure
         run: python3 scripts/validate_project.py
 
+      - name: Parse GDScript files
+        run: |
+          python3 -m pip install --disable-pip-version-check gdtoolkit==4.5.0
+          gdlint autoload scripts
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:

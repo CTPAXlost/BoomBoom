@@ -13,6 +13,10 @@ var actor_name = "Боец"
 var spawn_position = Vector3.ZERO
 var last_armor_damage = 0.0
 var last_health_damage = 0.0
+var kills = 0
+var assists = 0
+var deaths = 0
+var damage_contributors = {}
 
 func setup(p_game, p_team, p_name, p_spawn):
 	game = p_game
@@ -41,11 +45,48 @@ func take_damage(amount, attacker = null):
 		armor = max(0.0, armor - last_armor_damage)
 		remaining -= last_armor_damage
 	if remaining > 0.0:
-		last_health_damage = remaining
-		health = max(0.0, health - remaining)
+		last_health_damage = min(health, remaining)
+		health = max(0.0, health - last_health_damage)
+	var actual_damage = last_armor_damage + last_health_damage
+	if actual_damage > 0.0:
+		_register_damage_contributor(attacker, actual_damage)
 	on_health_changed()
 	if health <= 0.0:
 		die(attacker)
+
+func _register_damage_contributor(attacker, amount):
+	if not is_instance_valid(attacker) or attacker == self:
+		return
+	if not (attacker is Combatant) or attacker.team == team:
+		return
+	var key = attacker.get_instance_id()
+	var entry = damage_contributors.get(key, {})
+	entry["actor"] = attacker
+	entry["damage"] = float(entry.get("damage", 0.0)) + float(amount)
+	entry["time"] = Time.get_ticks_msec() * 0.001
+	damage_contributors[key] = entry
+
+func collect_assist_candidates(killer, window_seconds = 10.0):
+	var result = []
+	var now = Time.get_ticks_msec() * 0.001
+	for key in damage_contributors:
+		var entry = damage_contributors[key]
+		var contributor = entry.get("actor")
+		if not is_instance_valid(contributor) or contributor == killer:
+			continue
+		if not (contributor is Combatant):
+			continue
+		if is_instance_valid(killer) and contributor.team != killer.team:
+			continue
+		if now - float(entry.get("time", 0.0)) > float(window_seconds):
+			continue
+		if float(entry.get("damage", 0.0)) < 1.0:
+			continue
+		result.append(contributor)
+	return result
+
+func clear_damage_contributors():
+	damage_contributors.clear()
 
 func die(attacker):
 	if not alive:
@@ -64,6 +105,7 @@ func respawn_at(point):
 	armor = max_armor
 	last_armor_damage = 0.0
 	last_health_damage = 0.0
+	clear_damage_contributors()
 	alive = true
 	visible = true
 	collision_layer = 2
