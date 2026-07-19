@@ -71,7 +71,7 @@ func take_damage(amount, attacker = null, hit_info = {}):
 func _register_damage_contributor(attacker, amount):
 	if not is_instance_valid(attacker) or attacker == self:
 		return
-	if not (attacker is Combatant) or attacker.team == team:
+	if not (attacker is Node) or not attacker.is_in_group("combatants") or attacker.team == team:
 		return
 	var key = attacker.get_instance_id()
 	var entry = damage_contributors.get(key, {})
@@ -88,7 +88,7 @@ func collect_assist_candidates(killer, window_seconds = 10.0):
 		var contributor = entry.get("actor")
 		if not is_instance_valid(contributor) or contributor == killer:
 			continue
-		if not (contributor is Combatant):
+		if not (contributor is Node) or not contributor.is_in_group("combatants"):
 			continue
 		if is_instance_valid(killer) and contributor.team != killer.team:
 			continue

@@ -12,7 +12,7 @@
 ```bash
 git init
 git add .
-git commit -m "Initial Boom Arena 0.8.1 project"
+git commit -m "Initial Boom Arena 0.8.2 project"
 git branch -M main
 git remote add origin https://github.com/USER/BoomBoom.git
 git push -u origin main

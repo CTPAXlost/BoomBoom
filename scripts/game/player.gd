@@ -1,4 +1,4 @@
-extends Combatant
+extends "res://scripts/game/combatant.gd"
 class_name PlayerCombatant
 
 var camera
@@ -50,12 +50,17 @@ var footstep_audio
 var footstep_timer = 0.0
 var footstep_index = 0
 
-const FOOTSTEP_SOUNDS = [
-	preload("res://assets/audio/footstep1.wav"),
-	preload("res://assets/audio/footstep2.wav")
+const FOOTSTEP_SOUND_PATHS = [
+	"res://assets/audio/footstep1.wav",
+	"res://assets/audio/footstep2.wav"
 ]
-const RELOAD_SOUND = preload("res://assets/audio/reload.wav")
-const KNIFE_SOUND = preload("res://assets/audio/knife.wav")
+const RELOAD_SOUND_PATH = "res://assets/audio/reload.wav"
+const KNIFE_SOUND_PATH = "res://assets/audio/knife.wav"
+
+func _load_audio(path):
+	if path == null or str(path).is_empty():
+		return null
+	return ResourceLoader.load(str(path), "AudioStream", ResourceLoader.CACHE_MODE_REUSE)
 
 func _ready():
 	_build_body()
@@ -88,11 +93,11 @@ func _build_body():
 	shot_audio.unit_size = 4.0
 	add_child(shot_audio)
 	reload_audio = AudioStreamPlayer3D.new()
-	reload_audio.stream = RELOAD_SOUND
+	reload_audio.stream = _load_audio(RELOAD_SOUND_PATH)
 	reload_audio.max_distance = 24.0
 	add_child(reload_audio)
 	knife_audio = AudioStreamPlayer3D.new()
-	knife_audio.stream = KNIFE_SOUND
+	knife_audio.stream = _load_audio(KNIFE_SOUND_PATH)
 	knife_audio.max_distance = 12.0
 	add_child(knife_audio)
 	footstep_audio = AudioStreamPlayer3D.new()
@@ -214,7 +219,7 @@ func _update_footsteps(delta, moving):
 		return
 	footstep_timer -= delta
 	if footstep_timer <= 0.0 and is_instance_valid(footstep_audio):
-		footstep_audio.stream = FOOTSTEP_SOUNDS[footstep_index % FOOTSTEP_SOUNDS.size()]
+		footstep_audio.stream = _load_audio(FOOTSTEP_SOUND_PATHS[footstep_index % FOOTSTEP_SOUND_PATHS.size()])
 		footstep_index += 1
 		footstep_audio.pitch_scale = randf_range(0.95, 1.05)
 		footstep_audio.play()
@@ -328,7 +333,7 @@ func _find_crosshair_target():
 	var direct = _raycast_center(80.0)
 	if not direct.is_empty():
 		var direct_collider = direct.get("collider")
-		if direct_collider is Combatant and direct_collider.alive and direct_collider.team != team:
+		if direct_collider is Node and direct_collider.is_in_group("combatants") and direct_collider.alive and direct_collider.team != team:
 			return direct_collider
 
 	var viewport_size = get_viewport().get_visible_rect().size
@@ -429,7 +434,7 @@ func _play_weapon_sound(stats):
 	var path = str(stats.get("sound", ""))
 	if path.is_empty():
 		return
-	shot_audio.stream = load(path)
+	shot_audio.stream = _load_audio(path)
 	shot_audio.pitch_scale = randf_range(0.97, 1.035)
 	shot_audio.play()
 
@@ -463,7 +468,7 @@ func _fire_pellet(stats, assisted_target = null):
 	if not hit.is_empty():
 		endpoint = hit.get("position", endpoint)
 		var collider = hit.get("collider")
-		if collider is Combatant and collider.team != team:
+		if collider is Node and collider.is_in_group("combatants") and collider.team != team:
 			var damage = float(stats.damage)
 			var hit_distance = origin.distance_to(endpoint)
 			if current_weapon_id == "shotgun":
@@ -543,7 +548,7 @@ func knife_attack():
 	var hit = _raycast_center(2.35)
 	if not hit.is_empty():
 		var collider = hit.get("collider")
-		if collider is Combatant and collider.team != team:
+		if collider is Node and collider.is_in_group("combatants") and collider.team != team:
 			collider.take_damage(55.0, self, {"method": "knife", "headshot": false})
 			if game_hud:
 				game_hud.on_weapon_fired(true, false, 1.0)

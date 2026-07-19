@@ -1,4 +1,4 @@
-extends Combatant
+extends "res://scripts/game/combatant.gd"
 class_name BotCombatant
 
 var target
@@ -30,11 +30,16 @@ var footstep_audio
 var footstep_timer = 0.0
 var footstep_index = 0
 
-const FOOTSTEP_SOUNDS = [
-	preload("res://assets/audio/footstep1.wav"),
-	preload("res://assets/audio/footstep2.wav")
+const FOOTSTEP_SOUND_PATHS = [
+	"res://assets/audio/footstep1.wav",
+	"res://assets/audio/footstep2.wav"
 ]
-const RELOAD_SOUND = preload("res://assets/audio/reload.wav")
+const RELOAD_SOUND_PATH = "res://assets/audio/reload.wav"
+
+func _load_audio(path):
+	if path == null or str(path).is_empty():
+		return null
+	return ResourceLoader.load(str(path), "AudioStream", ResourceLoader.CACHE_MODE_REUSE)
 
 func _ready():
 	_build_body()
@@ -87,7 +92,7 @@ func _build_body():
 	shot_audio.unit_size = 4.0
 	add_child(shot_audio)
 	reload_audio = AudioStreamPlayer3D.new()
-	reload_audio.stream = RELOAD_SOUND
+	reload_audio.stream = _load_audio(RELOAD_SOUND_PATH)
 	reload_audio.max_distance = 22.0
 	add_child(reload_audio)
 	footstep_audio = AudioStreamPlayer3D.new()
@@ -310,7 +315,7 @@ func _update_footsteps(delta, moving):
 		return
 	footstep_timer -= delta
 	if footstep_timer <= 0.0 and is_instance_valid(footstep_audio):
-		footstep_audio.stream = FOOTSTEP_SOUNDS[footstep_index % FOOTSTEP_SOUNDS.size()]
+		footstep_audio.stream = _load_audio(FOOTSTEP_SOUND_PATHS[footstep_index % FOOTSTEP_SOUND_PATHS.size()])
 		footstep_index += 1
 		footstep_audio.pitch_scale = randf_range(0.92, 1.08)
 		footstep_audio.play()
@@ -385,7 +390,7 @@ func shoot(enemy):
 				total_damage *= float(stats.headshot_multiplier)
 
 	if is_instance_valid(shot_audio):
-		shot_audio.stream = load(str(stats.sound))
+		shot_audio.stream = _load_audio(str(stats.sound))
 		shot_audio.pitch_scale = randf_range(0.96, 1.04)
 		shot_audio.play()
 	if did_hit:

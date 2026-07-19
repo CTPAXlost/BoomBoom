@@ -83,8 +83,11 @@ func start_match():
 	if is_instance_valid(pending_screen):
 		return
 	var arena_script = ResourceLoader.load(ARENA_SCRIPT_PATH)
-	if arena_script == null:
+	if arena_script == null or not (arena_script is Script):
 		_show_start_error("Не удалось загрузить боевую сцену.")
+		return
+	if not arena_script.can_instantiate():
+		_show_start_error("Скрипт боевой сцены содержит ошибку и не может быть создан.")
 		return
 	var arena = arena_script.new()
 	if arena == null:

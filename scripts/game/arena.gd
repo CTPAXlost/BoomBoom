@@ -7,7 +7,7 @@ signal match_finished
 const PlayerScript = preload("res://scripts/game/player.gd")
 const BotScript = preload("res://scripts/game/bot.gd")
 const HUDScript = preload("res://scripts/ui/mobile_hud.gd")
-const GRENADE_SOUND = preload("res://assets/audio/grenade.wav")
+const GRENADE_SOUND_PATH = "res://assets/audio/grenade.wav"
 
 var mode_id = "farm"
 var blue_score = 0
@@ -118,7 +118,7 @@ func _build_environment():
 	add_child(light)
 
 	grenade_audio = AudioStreamPlayer3D.new()
-	grenade_audio.stream = GRENADE_SOUND
+	grenade_audio.stream = ResourceLoader.load(GRENADE_SOUND_PATH, "AudioStream", ResourceLoader.CACHE_MODE_REUSE)
 	grenade_audio.max_distance = 55.0
 	grenade_audio.unit_size = 5.0
 	add_child(grenade_audio)
@@ -545,7 +545,7 @@ func register_kill(killer, victim, hit_info = {}):
 		return
 	victim.deaths += 1
 	victim.life_streak = 0
-	var valid_killer = is_instance_valid(killer) and killer is Combatant and killer.team != victim.team
+	var valid_killer = is_instance_valid(killer) and killer is Node and killer.is_in_group("combatants") and killer.team != victim.team
 	var assistants = []
 	if valid_killer:
 		assistants = victim.collect_assist_candidates(killer, 10.0)

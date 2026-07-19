@@ -168,8 +168,8 @@ for required_setting in [
     'export_path="build/BoomArena-debug.apk"',
     'architectures/arm64-v8a=true',
     'package/unique_name="com.franbpm.boomarena"',
-    'version/code=9',
-    'version/name="0.8.1"',
+    'version/code=10',
+    'version/name="0.8.2"',
 ]:
     if required_setting not in preset_text:
         errors.append(f"Android export preset is missing: {required_setting}")
@@ -222,6 +222,21 @@ if combatant_path.is_file():
     for hook in ("on_health_changed", "on_respawned"):
         if hook not in methods:
             errors.append(f"Combatant base class must define hook method: {hook}")
+
+
+workflow_text = (root / ".github/workflows/android.yml").read_text(encoding="utf-8")
+if "--headless --path . --import" not in workflow_text:
+    errors.append("GitHub Actions must import Godot resources before the battle smoke test")
+if workflow_text.find("--headless --path . --import") > workflow_text.find("-- --smoke-test"):
+    errors.append("Godot resource import must run before the battle smoke test")
+
+raw_audio_preloads = []
+for gd_file in sorted(root.rglob("*.gd")):
+    source = gd_file.read_text(encoding="utf-8")
+    if 'preload("res://assets/audio/' in source:
+        raw_audio_preloads.append(str(gd_file))
+if raw_audio_preloads:
+    errors.append("Raw audio must be loaded after import, not preloaded during script parsing: " + ", ".join(raw_audio_preloads))
 
 if errors:
     print("Validation failed:")

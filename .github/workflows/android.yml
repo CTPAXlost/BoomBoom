@@ -41,20 +41,39 @@ jobs:
           echo "GODOT_SMOKE_BIN=$GODOT_BIN" >> "$GITHUB_ENV"
           "$GODOT_BIN" --version
 
+      - name: Import Godot resources
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -o pipefail
+          timeout 120s "$GODOT_SMOKE_BIN" --headless --path . --import 2>&1 | tee godot-import.log
+          test -d .godot/imported
+          test -n "$(find .godot/imported -type f -name 'grenade.wav-*' -print -quit)"
+          if grep -E "SCRIPT ERROR|Parse Error|Failed to load script" godot-import.log; then
+            echo "ERROR: Godot reported script errors during resource import."
+            exit 1
+          fi
+
       - name: Run real battle scene smoke test
         shell: bash
         run: |
           set -euo pipefail
           set -o pipefail
-          timeout 45s "$GODOT_SMOKE_BIN" --headless --path . -- --smoke-test 2>&1 | tee smoke-test.log
+          timeout 35s "$GODOT_SMOKE_BIN" --headless --path . -- --smoke-test 2>&1 | tee smoke-test.log
           grep -q "BOOM_ARENA_SMOKE_TEST_OK" smoke-test.log
+          if grep -E "SCRIPT ERROR|Parse Error|Failed to load script" smoke-test.log; then
+            echo "ERROR: Godot reported script errors during the battle smoke test."
+            exit 1
+          fi
 
-      - name: Upload smoke log on failure
+      - name: Upload Godot logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: BoomArena-Smoke-Test-Log
-          path: smoke-test.log
+          name: BoomArena-Godot-Test-Logs
+          path: |
+            godot-import.log
+            smoke-test.log
           if-no-files-found: warn
           retention-days: 14
 
@@ -134,6 +153,9 @@ jobs:
           head -n 20 artifacts/apk-badging.txt
 
           cp "$APK_PATH" artifacts/BoomArena-debug.apk
+          if [ -f godot-import.log ]; then
+            cp godot-import.log artifacts/godot-import.log
+          fi
           if [ -f smoke-test.log ]; then
             cp smoke-test.log artifacts/smoke-test.log
           fi
@@ -149,6 +171,7 @@ jobs:
             artifacts/BoomArena-debug.apk
             artifacts/BoomArena-debug.apk.sha256
             artifacts/apk-badging.txt
+            artifacts/godot-import.log
             artifacts/smoke-test.log
           if-no-files-found: error
           retention-days: 14
