@@ -181,3 +181,54 @@ func finish_match(aborted = false):
 	var summary = "%s\nСчёт: %d — %d\nЗаработано монет: %d" % [title, blue_score, red_score, reward]
 	await get_tree().create_timer(0.25).timeout
 	match_finished.emit(summary)
+
+func spawn_tracer(start, finish, color, hit_enemy = false):
+	var direction = finish - start
+	var length = direction.length()
+	if length < 0.03:
+		return
+	var up = direction / length
+	var side = up.cross(Vector3.FORWARD)
+	if side.length_squared() < 0.001:
+		side = up.cross(Vector3.RIGHT)
+	side = side.normalized()
+	var forward = side.cross(up).normalized()
+
+	var tracer = MeshInstance3D.new()
+	var mesh = CylinderMesh.new()
+	mesh.top_radius = 0.018
+	mesh.bottom_radius = 0.018
+	mesh.height = length
+	mesh.radial_segments = 6
+	mesh.rings = 1
+	tracer.mesh = mesh
+	var mat = StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = color.lerp(Color.WHITE, 0.45)
+	mat.emission_enabled = true
+	mat.emission = color.lerp(Color.WHITE, 0.35)
+	tracer.material_override = mat
+	tracer.global_transform = Transform3D(Basis(side, up, forward), (start + finish) * 0.5)
+	add_child(tracer)
+
+	if hit_enemy:
+		var impact = MeshInstance3D.new()
+		var impact_mesh = SphereMesh.new()
+		impact_mesh.radius = 0.055
+		impact_mesh.height = 0.11
+		impact.mesh = impact_mesh
+		impact.position = finish
+		var impact_mat = StandardMaterial3D.new()
+		impact_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		impact_mat.albedo_color = Color("ffca3a")
+		impact_mat.emission_enabled = true
+		impact_mat.emission = Color("ff7b00")
+		impact.material_override = impact_mat
+		add_child(impact)
+		_remove_effect_later(impact, 0.09)
+	_remove_effect_later(tracer, 0.06)
+
+func _remove_effect_later(effect, delay):
+	await get_tree().create_timer(delay).timeout
+	if is_instance_valid(effect):
+		effect.queue_free()

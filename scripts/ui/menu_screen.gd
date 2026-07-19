@@ -65,7 +65,7 @@ func _build_header():
 	var title = make_label("BOOM ARENA", 42, Color("23e6ff"))
 	title.position = Vector2(48, 28)
 	add_child(title)
-	var subtitle = make_label("МОБИЛЬНЫЙ FPS • ПРОТОТИП 0.3", 18, Color("9db4c7"))
+	var subtitle = make_label("МОБИЛЬНЫЙ FPS • ПРОТОТИП 0.4", 18, Color("9db4c7"))
 	subtitle.position = Vector2(51, 83)
 	add_child(subtitle)
 	coins_label = make_label("", 28, Color("ffca3a"))
@@ -81,37 +81,48 @@ func _build_main_panel():
 	panel.add_theme_stylebox_override("panel", panel_style())
 	add_child(panel)
 	var box = VBoxContainer.new()
-	box.add_theme_constant_override("separation", 18)
+	box.add_theme_constant_override("separation", 11)
 	box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 28)
 	panel.add_child(box)
 	var headline = make_label("КОМАНДНЫЙ БОЙ 4 × 4", 30)
 	box.add_child(headline)
 	var desc = make_label("Ты + 3 союзных бота против 4 ботов.\nУбийства приносят монеты. Победа — дополнительную награду.", 19, Color("b8c9d8"))
 	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	desc.custom_minimum_size = Vector2(410, 85)
+	desc.custom_minimum_size = Vector2(410, 70)
 	box.add_child(desc)
 	var start = Button.new()
 	start.text = "НАЧАТЬ БОЙ"
-	start.custom_minimum_size = Vector2(410, 78)
+	start.custom_minimum_size = Vector2(410, 66)
 	style_button(start, Color("23e6ff"))
 	start.pressed.connect(func(): start_match.emit())
 	box.add_child(start)
 	var shop = Button.new()
 	shop.text = "АРСЕНАЛ И СНАРЯЖЕНИЕ"
-	shop.custom_minimum_size = Vector2(410, 65)
+	shop.custom_minimum_size = Vector2(410, 54)
 	style_button(shop, Color("ffca3a"))
 	shop.pressed.connect(func(): shop_panel.visible = not shop_panel.visible)
 	box.add_child(shop)
 	var auto = CheckButton.new()
 	auto.text = "Автострельба по цели"
 	auto.button_pressed = SaveData.auto_fire
-	auto.add_theme_font_size_override("font_size", 21)
+	auto.add_theme_font_size_override("font_size", 19)
 	auto.toggled.connect(func(value):
 		SaveData.auto_fire = value
 		SaveData.save_game()
 	)
 	box.add_child(auto)
-	var controls = make_label("ПК: WASD • мышь • ЛКМ • R • Q • 1–4 • F\nAndroid: левый стик • свайп справа • экранные кнопки", 17, Color("7893a8"))
+	var sensitivity_label = make_label("Чувствительность камеры: %.2f" % SaveData.look_sensitivity, 17, Color("b8c9d8"))
+	sensitivity_label.name = "SensitivityLabel"
+	box.add_child(sensitivity_label)
+	var sensitivity = HSlider.new()
+	sensitivity.min_value = 0.55
+	sensitivity.max_value = 1.8
+	sensitivity.step = 0.05
+	sensitivity.value = SaveData.look_sensitivity
+	sensitivity.custom_minimum_size = Vector2(410, 28)
+	sensitivity.value_changed.connect(_on_sensitivity_changed.bind(sensitivity_label))
+	box.add_child(sensitivity)
+	var controls = make_label("Android: плавающий стик слева • обзор свайпом справа • ОГОНЬ / AUTO", 15, Color("7893a8"))
 	controls.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(controls)
 
@@ -263,3 +274,8 @@ func _build_result_popup():
 func show_result(text):
 	result_popup.get_node("VBoxContainer/Result").text = text
 	result_popup.visible = true
+
+func _on_sensitivity_changed(value, label):
+	SaveData.look_sensitivity = float(value)
+	label.text = "Чувствительность камеры: %.2f" % SaveData.look_sensitivity
+	SaveData.save_game()

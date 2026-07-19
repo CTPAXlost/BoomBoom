@@ -7,6 +7,7 @@ var owned_weapons = {"rifle": true, "shotgun": false}
 var weapon_levels = {"rifle": 1, "shotgun": 1}
 var loadout = ["rifle", "", "", ""]
 var auto_fire = true
+var look_sensitivity = 1.0
 var selected_loadout_slot = 0
 
 func _ready():
@@ -123,7 +124,8 @@ func save_game():
 		"owned_weapons": owned_weapons,
 		"weapon_levels": weapon_levels,
 		"loadout": loadout,
-		"auto_fire": auto_fire
+		"auto_fire": auto_fire,
+		"look_sensitivity": look_sensitivity
 	}
 	var file = FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if file:
@@ -144,6 +146,7 @@ func load_game():
 	weapon_levels = parsed.get("weapon_levels", weapon_levels)
 	loadout = parsed.get("loadout", loadout)
 	auto_fire = bool(parsed.get("auto_fire", auto_fire))
+	look_sensitivity = clamp(float(parsed.get("look_sensitivity", look_sensitivity)), 0.55, 1.8)
 	while loadout.size() < 4:
 		loadout.append("")
 	if loadout.size() > 4:

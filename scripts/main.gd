@@ -7,6 +7,7 @@ var current_screen
 
 func _ready():
 	Engine.max_fps = 60
+	DisplayServer.screen_set_orientation(DisplayServer.SCREEN_SENSOR_LANDSCAPE)
 	_ensure_input_actions()
 	show_menu()
 

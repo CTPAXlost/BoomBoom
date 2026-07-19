@@ -21,7 +21,9 @@ required = [
     "scripts/ui/mobile_hud.gd",
     "scripts/ui/virtual_joystick.gd",
     "scripts/ui/look_pad.gd",
+    "scripts/ui/touch_action_button.gd",
     "scripts/ui/crosshair.gd",
+    "signing/boomarena-debug.keystore",
 ]
 errors: list[str] = []
 
@@ -116,6 +118,10 @@ elif not (root / main_scene_match.group(1)).is_file():
 
 if "textures/vram_compression/import_etc2_astc=true" not in project_text:
     errors.append("Android export requires [rendering] textures/vram_compression/import_etc2_astc=true")
+if 'window/handheld/orientation=4' not in project_text:
+    errors.append("Mobile FPS must use sensor landscape orientation (value 4)")
+if 'window/stretch/aspect="expand"' not in project_text:
+    errors.append("Mobile UI requires display/window/stretch/aspect=expand")
 
 splash_match = re.search(r'boot_splash/image="res://([^"\n]+)"', project_text)
 if splash_match and Path(splash_match.group(1)).suffix.lower() != ".png":
@@ -128,6 +134,8 @@ for required_setting in [
     'export_path="build/BoomArena-debug.apk"',
     'architectures/arm64-v8a=true',
     'package/unique_name="com.franbpm.boomarena"',
+    'version/code=4',
+    'version/name="0.4.0"',
 ]:
     if required_setting not in preset_text:
         errors.append(f"Android export preset is missing: {required_setting}")

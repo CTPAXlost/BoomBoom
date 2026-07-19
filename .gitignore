@@ -4,6 +4,7 @@ build/*.apk
 build/*.aab
 artifacts/
 *.keystore
+!signing/boomarena-debug.keystore
 *.jks
 export_credentials.cfg
 .DS_Store

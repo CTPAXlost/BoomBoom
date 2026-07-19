@@ -108,11 +108,18 @@ func shoot(enemy):
 	var accuracy = clamp(0.88 - distance / 90.0, 0.45, 0.88)
 	if weapon_id == "shotgun":
 		accuracy = clamp(0.92 - distance / 34.0, 0.35, 0.9)
-	if randf() <= accuracy:
+	var start = global_position + Vector3.UP * 1.35
+	var finish = enemy.global_position + Vector3.UP * 1.15
+	var did_hit = randf() <= accuracy
+	if did_hit:
 		var damage = float(stats.damage)
 		if weapon_id == "shotgun":
 			damage *= randf_range(3.2, 5.5)
 		enemy.take_damage(damage, self)
+	else:
+		finish += Vector3(randf_range(-1.4, 1.4), randf_range(-0.8, 1.2), randf_range(-1.4, 1.4))
+	if game:
+		game.spawn_tracer(start, finish, stats.color, did_hit)
 
 func on_respawned():
 	target = null
