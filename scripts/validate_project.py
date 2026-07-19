@@ -134,8 +134,8 @@ for required_setting in [
     'export_path="build/BoomArena-debug.apk"',
     'architectures/arm64-v8a=true',
     'package/unique_name="com.franbpm.boomarena"',
-    'version/code=4',
-    'version/name="0.4.0"',
+    'version/code=5',
+    'version/name="0.5.0"',
 ]:
     if required_setting not in preset_text:
         errors.append(f"Android export preset is missing: {required_setting}")

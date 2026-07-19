@@ -6,7 +6,7 @@ const Arena = preload("res://scripts/game/arena.gd")
 var current_screen
 
 func _ready():
-	Engine.max_fps = 60
+	SaveData.apply_runtime_settings()
 	DisplayServer.screen_set_orientation(DisplayServer.SCREEN_SENSOR_LANDSCAPE)
 	_ensure_input_actions()
 	show_menu()

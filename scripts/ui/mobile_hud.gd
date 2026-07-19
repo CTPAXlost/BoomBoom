@@ -23,6 +23,7 @@ var center_message_time = 0.0
 
 var root
 var health_label
+var armor_label
 var ammo_label
 var weapon_label
 var score_label
@@ -49,6 +50,8 @@ func set_player(value):
 func _process(delta):
 	if is_instance_valid(player):
 		health_label.text = "HP  %d" % int(player.health)
+		armor_label.text = "БРОНЯ  %d" % int(player.armor)
+		armor_label.modulate.a = 1.0 if player.max_armor > 0.0 else 0.42
 		ammo_label.text = player.ammo_text()
 		weapon_label.text = player.weapon_display_name()
 	if center_message_time > 0.0:
@@ -106,12 +109,18 @@ func _build_status(parent):
 	var health_panel = PanelContainer.new()
 	health_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	health_panel.add_theme_stylebox_override("panel", _panel_style())
-	_anchor_rect(health_panel, 0.0, 0.0, 0.0, 0.0, 18, 14, 205, 76)
+	_anchor_rect(health_panel, 0.0, 0.0, 0.0, 0.0, 18, 14, 230, 102)
 	parent.add_child(health_panel)
+	var health_box = VBoxContainer.new()
+	health_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	health_box.alignment = BoxContainer.ALIGNMENT_CENTER
+	health_panel.add_child(health_box)
+	armor_label = _label("БРОНЯ 0", 20, Color("77d8ff"))
+	armor_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	health_box.add_child(armor_label)
 	health_label = _label("HP 100", 25, Color("8cff98"))
 	health_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	health_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	health_panel.add_child(health_label)
+	health_box.add_child(health_label)
 
 	var score_panel = PanelContainer.new()
 	score_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -284,20 +293,22 @@ func update_match(blue, red, seconds, earned):
 	timer_label.text = "%02d:%02d" % [mins, secs]
 	coins_label.text = "+%d ◈" % earned
 
-func show_center_message(text):
+func show_center_message(text, duration = 1.25):
 	center_message.text = text
 	center_message.visible = true
 	center_message.modulate.a = 1.0
-	center_message_time = 1.25
+	center_message_time = float(duration)
 
 func flash_knife():
 	knife_overlay.modulate.a = 1.0
 
-func on_weapon_fired(hit_enemy):
+func on_weapon_fired(hit_enemy, headshot = false, multiplier = 1.0):
 	shot_flash_time = 0.075
 	crosshair_kick = min(crosshair_kick + 0.55, 1.0)
 	if hit_enemy:
-		hit_marker_time = 0.17
+		hit_marker_time = 0.22 if headshot else 0.17
+	if headshot:
+		show_center_message("В ГОЛОВУ!  ×%.2f" % float(multiplier), 0.75)
 
 func release_controls():
 	move_vector = Vector2.ZERO

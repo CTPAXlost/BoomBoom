@@ -4,6 +4,7 @@ class_name PlayerCombatant
 var camera
 var head
 var weapon_root
+var knife_root
 var muzzle
 var muzzle_flash
 var muzzle_light
@@ -28,6 +29,8 @@ var target_under_crosshair = false
 var recoil = 0.0
 var muzzle_flash_time = 0.0
 var bob_time = 0.0
+var knife_animation_time = 0.0
+var knife_animation_duration = 0.42
 
 func _ready():
 	_build_body()
@@ -55,6 +58,7 @@ func _build_body():
 
 	weapon_root = Node3D.new()
 	camera.add_child(weapon_root)
+	_build_knife_model()
 	_update_weapon_model()
 
 func setup_player(p_game, p_team, p_name, p_spawn, hud):
@@ -62,6 +66,7 @@ func setup_player(p_game, p_team, p_name, p_spawn, hud):
 	game_hud = hud
 	if not is_node_ready():
 		await ready
+	set_armor_capacity(SaveData.ARMOR_VALUE if SaveData.armor_owned else 0)
 	game_hud.set_player(self)
 	_face_towards(Vector3.ZERO)
 
@@ -222,7 +227,7 @@ func current_state():
 	return pistol_state if using_pistol else weapon_states.get(current_weapon_id, {})
 
 func try_fire(assisted_target = null):
-	if reloading or not alive:
+	if reloading or not alive or knife_animation_time > 0.0:
 		return
 	var now = Time.get_ticks_msec() / 1000.0
 	if now < next_fire_time:
@@ -246,10 +251,12 @@ func try_fire(assisted_target = null):
 		weapon_states[current_weapon_id] = state
 
 	var any_hit = false
+	var any_headshot = false
 	var pellets = int(stats.pellets)
 	for pellet_index in range(pellets):
 		var result = _fire_pellet(stats, assisted_target)
 		any_hit = any_hit or bool(result.get("hit_enemy", false))
+		any_headshot = any_headshot or bool(result.get("headshot", false))
 		if pellet_index < 3 and game:
 			game.spawn_tracer(muzzle.global_position, result.get("endpoint", muzzle.global_position), stats.color, bool(result.get("hit_enemy", false)))
 
@@ -258,7 +265,7 @@ func try_fire(assisted_target = null):
 	pitch = clamp(pitch - (0.006 if pellets == 1 else 0.014), deg_to_rad(-68.0), deg_to_rad(62.0))
 	head.rotation.x = pitch
 	if game_hud:
-		game_hud.on_weapon_fired(any_hit)
+		game_hud.on_weapon_fired(any_hit, any_headshot, float(stats.headshot_multiplier))
 
 	if int(state["mag"]) <= 0 and int(state["reserve"]) <= 0:
 		_switch_to_pistol()
@@ -280,13 +287,19 @@ func _fire_pellet(stats, assisted_target = null):
 	query.exclude = [get_rid()]
 	var hit = get_world_3d().direct_space_state.intersect_ray(query)
 	var hit_enemy = false
+	var headshot = false
 	if not hit.is_empty():
 		endpoint = hit.get("position", endpoint)
 		var collider = hit.get("collider")
 		if collider is Combatant and collider.team != team:
-			collider.take_damage(float(stats.damage), self)
+			var damage = float(stats.damage)
+			var head_height = collider.global_position.y + 1.43
+			headshot = endpoint.y >= head_height
+			if headshot:
+				damage *= float(stats.headshot_multiplier)
+			collider.take_damage(damage, self)
 			hit_enemy = true
-	return {"endpoint": endpoint, "hit_enemy": hit_enemy}
+	return {"endpoint": endpoint, "hit_enemy": hit_enemy, "headshot": headshot}
 
 func _raycast_center(distance):
 	var origin = camera.global_position
@@ -321,16 +334,22 @@ func reload_weapon():
 
 func knife_attack():
 	var now = Time.get_ticks_msec() / 1000.0
-	if now < knife_ready_time:
+	if now < knife_ready_time or not alive:
 		return
 	knife_ready_time = now + 0.9
+	knife_animation_time = knife_animation_duration
+	if game_hud:
+		game_hud.flash_knife()
+	await get_tree().create_timer(0.11).timeout
+	if not alive:
+		return
 	var hit = _raycast_center(2.35)
 	if not hit.is_empty():
 		var collider = hit.get("collider")
 		if collider is Combatant and collider.team != team:
 			collider.take_damage(55.0, self)
-	if game_hud:
-		game_hud.flash_knife()
+			if game_hud:
+				game_hud.on_weapon_fired(true, false, 1.0)
 
 func select_slot(index):
 	if index < 0 or index >= SaveData.loadout.size():
@@ -355,6 +374,58 @@ func _switch_to_pistol():
 	_update_weapon_model()
 	if game_hud:
 		game_hud.show_center_message("ПИСТОЛЕТ")
+
+
+func _build_knife_model():
+	knife_root = Node3D.new()
+	knife_root.visible = false
+	camera.add_child(knife_root)
+	_add_knife_box(Vector3(0.0, -0.03, 0.0), Vector3(0.13, 0.18, 0.46), Color("20262d"), Vector3(-8, 0, 0))
+	_add_knife_box(Vector3(0.0, 0.0, -0.34), Vector3(0.075, 0.055, 0.52), Color("dce8ef"), Vector3(0, 0, 0))
+	_add_knife_box(Vector3(0.0, 0.0, -0.62), Vector3(0.02, 0.045, 0.18), Color("f5fbff"), Vector3(0, 0, 0))
+
+func _add_knife_box(pos, box_size, color, rotation_deg = Vector3.ZERO):
+	var mesh_instance = MeshInstance3D.new()
+	var mesh = BoxMesh.new()
+	mesh.size = box_size
+	mesh_instance.mesh = mesh
+	mesh_instance.position = pos
+	mesh_instance.rotation_degrees = rotation_deg
+	var mat = StandardMaterial3D.new()
+	mat.albedo_color = color
+	mat.metallic = 0.62
+	mat.roughness = 0.24
+	mesh_instance.material_override = mat
+	knife_root.add_child(mesh_instance)
+
+func _update_knife_animation(delta):
+	if not is_instance_valid(knife_root):
+		return
+	if knife_animation_time <= 0.0:
+		knife_root.visible = false
+		if is_instance_valid(weapon_root):
+			weapon_root.visible = true
+		return
+	knife_animation_time = max(0.0, knife_animation_time - delta)
+	var progress = 1.0 - knife_animation_time / knife_animation_duration
+	var start_pos = Vector3(0.58, -0.58, -0.24)
+	var strike_pos = Vector3(0.04, -0.12, -0.86)
+	var end_pos = Vector3(0.48, -0.52, -0.34)
+	var start_rot = Vector3(-22.0, -28.0, 28.0)
+	var strike_rot = Vector3(10.0, 18.0, -58.0)
+	var end_rot = Vector3(-18.0, -20.0, 18.0)
+	var phase = 0.0
+	if progress < 0.42:
+		phase = ease(progress / 0.42, -2.2)
+		knife_root.position = start_pos.lerp(strike_pos, phase)
+		knife_root.rotation_degrees = start_rot.lerp(strike_rot, phase)
+	else:
+		phase = ease((progress - 0.42) / 0.58, 2.2)
+		knife_root.position = strike_pos.lerp(end_pos, phase)
+		knife_root.rotation_degrees = strike_rot.lerp(end_rot, phase)
+	knife_root.visible = true
+	if is_instance_valid(weapon_root):
+		weapon_root.visible = false
 
 func _update_weapon_model():
 	if not is_instance_valid(weapon_root):
@@ -438,6 +509,7 @@ func _show_muzzle_flash(color):
 		muzzle_light.visible = true
 
 func _update_weapon_visuals(delta):
+	_update_knife_animation(delta)
 	recoil = move_toward(recoil, 0.0, delta * 5.2)
 	if is_instance_valid(weapon_root):
 		var move_amount = Vector2(velocity.x, velocity.z).length() / speed if alive else 0.0
@@ -460,6 +532,11 @@ func on_health_changed():
 			game_hud.release_controls()
 
 func on_respawned():
+	knife_animation_time = 0.0
+	if is_instance_valid(knife_root):
+		knife_root.visible = false
+	if is_instance_valid(weapon_root):
+		weapon_root.visible = true
 	_reset_ammo()
 	look_accumulator = Vector2.ZERO
 	_face_towards(Vector3.ZERO)
@@ -474,4 +551,7 @@ func ammo_text():
 	return "%d / %d" % [int(state["mag"]), int(state["reserve"])]
 
 func weapon_display_name():
-	return SaveData.get_weapon_stats(current_weapon_id).get("name", "Оружие")
+	var stats = SaveData.get_weapon_stats(current_weapon_id)
+	if current_weapon_id == "pistol":
+		return stats.get("name", "Оружие")
+	return "%s • ур.%d • мощь %d" % [stats.get("name", "Оружие"), int(stats.level), int(stats.power)]

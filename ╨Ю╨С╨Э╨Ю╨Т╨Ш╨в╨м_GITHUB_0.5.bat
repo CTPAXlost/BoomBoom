@@ -8,7 +8,7 @@ if errorlevel 1 goto nogit
 
 if not exist .git (
   echo Эта папка не является локальным Git-репозиторием.
-  echo Скопируйте её содержимое в папку вашего репозитория или используйте ЗАГРУЗИТЬ_НА_GITHUB.bat.
+  echo Скопируйте содержимое версии 0.5 в папку вашего репозитория.
   pause
   exit /b 1
 )
@@ -16,11 +16,11 @@ if not exist .git (
 if not exist .github\workflows\android.yml goto missing
 if not exist signing\boomarena-debug.keystore goto missing
 
-echo Обновление Boom Arena до 0.4...
+echo Обновление Boom Arena до 0.5...
 git add -A
 if errorlevel 1 goto error
 
-git commit -m "Boom Arena 0.4 mobile controls shooting and orientation"
+git commit -m "Boom Arena 0.5 old farm armor settings and weapon progression"
 if errorlevel 1 echo Новых изменений для коммита нет или commit уже создан.
 
 git push origin main

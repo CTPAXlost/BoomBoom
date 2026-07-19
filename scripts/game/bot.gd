@@ -89,7 +89,7 @@ func _physics_process(delta):
 	else:
 		velocity.y = -0.1
 	move_and_slide()
-	if distance <= SaveData.get_weapon_stats(weapon_id).range and now >= fire_ready and _has_line_of_sight(target):
+	if distance <= SaveData.get_weapon_stats(weapon_id, 1).range and now >= fire_ready and _has_line_of_sight(target):
 		shoot(target)
 
 func _has_line_of_sight(enemy):
@@ -102,7 +102,7 @@ func _has_line_of_sight(enemy):
 	return not hit.is_empty() and hit.get("collider") == enemy
 
 func shoot(enemy):
-	var stats = SaveData.get_weapon_stats(weapon_id)
+	var stats = SaveData.get_weapon_stats(weapon_id, 1)
 	fire_ready = Time.get_ticks_msec() / 1000.0 + float(stats.fire_rate) * randf_range(1.0, 1.4)
 	var distance = global_position.distance_to(enemy.global_position)
 	var accuracy = clamp(0.88 - distance / 90.0, 0.45, 0.88)
