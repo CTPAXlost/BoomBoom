@@ -39,6 +39,10 @@ var knife_animation_time = 0.0
 var knife_animation_duration = 0.42
 var aiming = false
 var range_message_ready = 0.0
+var medkits_used_life = 0
+var grenades_used_life = 0
+var grenade_ready_time = 0.0
+var soft_aim_target
 
 func _ready():
 	_build_body()
@@ -74,7 +78,9 @@ func setup_player(p_game, p_team, p_name, p_spawn, hud):
 	game_hud = hud
 	if not is_node_ready():
 		await ready
-	set_armor_capacity(SaveData.ARMOR_VALUE if SaveData.armor_owned else 0)
+	max_health = float(SaveData.player_max_health())
+	health = max_health
+	set_armor_capacity(SaveData.armor_capacity())
 	game_hud.set_player(self)
 	_face_towards(Vector3.ZERO)
 
@@ -95,6 +101,8 @@ func _reset_ammo():
 	var pistol = SaveData.get_weapon_stats("pistol")
 	pistol_state = {"mag": int(pistol.magazine), "reserve": int(pistol.reserve)}
 	using_pistol = false
+	medkits_used_life = 0
+	grenades_used_life = 0
 	reloading = false
 	reload_token += 1
 	reload_animation_time = 0.0
@@ -114,9 +122,19 @@ func _physics_process(delta):
 		_update_weapon_visuals(delta)
 		return
 	_handle_look(delta)
-	_handle_move(delta)
-	_handle_actions()
-	_update_targeting_and_auto_fire()
+	if is_instance_valid(game) and game.combat_enabled:
+		_apply_soft_aim(delta)
+		_handle_move(delta)
+		_handle_actions()
+		_update_targeting_and_auto_fire()
+	else:
+		velocity = Vector3.ZERO
+		tracked_target = null
+		target_under_crosshair = false
+		target_out_of_range = false
+		tracked_distance = -1.0
+		if game_hud:
+			game_hud.update_distance(-1.0, float(current_stats().range), false, false)
 	_update_weapon_visuals(delta)
 
 func _handle_move(delta):
@@ -166,6 +184,51 @@ func _apply_look(delta_pixels, sensitivity):
 	rotation.y = yaw
 	head.rotation.x = pitch
 
+func _apply_soft_aim(delta):
+	if not SaveData.aim_assist or reloading or knife_animation_time > 0.0:
+		soft_aim_target = null
+		return
+	soft_aim_target = _find_aim_assist_candidate()
+	if not is_instance_valid(soft_aim_target):
+		return
+	var target_point = soft_aim_target.global_position + Vector3.UP * 1.2
+	var direction = (target_point - camera.global_position).normalized()
+	var desired_yaw = atan2(-direction.x, -direction.z)
+	var desired_pitch = -asin(clamp(direction.y, -1.0, 1.0))
+	var strength = 0.42
+	if aiming:
+		strength = 0.9
+	elif game_hud and game_hud.fire_held:
+		strength = 0.68
+	var blend = clamp(delta * strength, 0.0, 0.075)
+	yaw = lerp_angle(yaw, desired_yaw, blend)
+	pitch = lerp_angle(pitch, desired_pitch, blend)
+	pitch = clamp(pitch, deg_to_rad(-68.0), deg_to_rad(62.0))
+	rotation.y = yaw
+	head.rotation.x = pitch
+
+func _find_aim_assist_candidate():
+	var viewport_size = get_viewport().get_visible_rect().size
+	var screen_center = viewport_size * 0.5
+	var capture_radius = clamp(min(viewport_size.x, viewport_size.y) * (0.12 if aiming else 0.15), 72.0, 132.0)
+	var best
+	var best_score = capture_radius
+	var stats = current_stats()
+	for candidate in get_tree().get_nodes_in_group("combatants"):
+		if candidate == self or not candidate.alive or candidate.team == team:
+			continue
+		var target_point = candidate.global_position + Vector3.UP * 1.18
+		if camera.is_position_behind(target_point):
+			continue
+		if global_position.distance_to(candidate.global_position) > float(stats.range) * 1.08:
+			continue
+		var screen_pos = camera.unproject_position(target_point)
+		var screen_distance = screen_pos.distance_to(screen_center)
+		if screen_distance < best_score and _has_clear_line(candidate, target_point):
+			best_score = screen_distance
+			best = candidate
+	return best
+
 func _unhandled_input(event):
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		_apply_look(event.relative, mouse_sensitivity * SaveData.look_sensitivity)
@@ -178,6 +241,10 @@ func _handle_actions():
 		reload_weapon()
 	if Input.is_action_just_pressed("knife") or (game_hud and game_hud.consume_knife()):
 		knife_attack()
+	if Input.is_action_just_pressed("medkit") or (game_hud and game_hud.consume_medkit()):
+		use_medkit()
+	if Input.is_action_just_pressed("grenade") or (game_hud and game_hud.consume_grenade()):
+		throw_grenade()
 	if Input.is_action_just_pressed("toggle_auto") or (game_hud and game_hud.consume_auto_toggle()):
 		SaveData.auto_fire = not SaveData.auto_fire
 		SaveData.save_game()
@@ -251,7 +318,7 @@ func current_state():
 	return pistol_state if using_pistol else weapon_states.get(current_weapon_id, {})
 
 func try_fire(assisted_target = null):
-	if reloading or not alive or knife_animation_time > 0.0:
+	if reloading or not alive or knife_animation_time > 0.0 or not is_instance_valid(game) or not game.combat_enabled:
 		return
 	var now = Time.get_ticks_msec() * 0.001
 	if now < next_fire_time:
@@ -294,13 +361,11 @@ func try_fire(assisted_target = null):
 			game.spawn_tracer(muzzle.global_position, result.get("endpoint", muzzle.global_position), stats.color, bool(result.get("hit_enemy", false)))
 
 	_show_muzzle_flash(stats.color)
-	recoil = min(recoil + (0.32 if pellets == 1 else 0.68), 1.0)
-	var recoil_pitch = 0.0045 if aiming else 0.0065
-	if current_weapon_id == "machinegun":
-		recoil_pitch *= 1.15
-	if pellets > 1:
-		recoil_pitch = 0.014
-	pitch = clamp(pitch - recoil_pitch, deg_to_rad(-68.0), deg_to_rad(62.0))
+	recoil = min(recoil + float(stats.get("recoil_visual", 0.35)), 1.25)
+	var aim_recoil_multiplier = 0.72 if aiming else 1.0
+	pitch = clamp(pitch - float(stats.get("recoil_pitch", 0.007)) * aim_recoil_multiplier, deg_to_rad(-68.0), deg_to_rad(62.0))
+	yaw += randf_range(-float(stats.get("recoil_yaw", 0.003)), float(stats.get("recoil_yaw", 0.003))) * aim_recoil_multiplier
+	rotation.y = yaw
 	head.rotation.x = pitch
 	if game_hud:
 		game_hud.on_weapon_fired(any_hit, any_headshot, float(stats.headshot_multiplier))
@@ -400,7 +465,7 @@ func reload_weapon():
 
 func knife_attack():
 	var now = Time.get_ticks_msec() * 0.001
-	if now < knife_ready_time or not alive:
+	if now < knife_ready_time or not alive or not is_instance_valid(game) or not game.combat_enabled:
 		return
 	knife_ready_time = now + 0.9
 	reload_token += 1
@@ -419,6 +484,55 @@ func knife_attack():
 			collider.take_damage(55.0, self)
 			if game_hud:
 				game_hud.on_weapon_fired(true, false, 1.0)
+
+func use_medkit():
+	if not alive or not is_instance_valid(game) or not game.combat_enabled:
+		return
+	if medkits_used_life >= SaveData.MEDKIT_PER_LIFE:
+		if game_hud:
+			game_hud.show_center_message("ЛИМИТ: 10 АПТЕЧЕК ЗА ЖИЗНЬ", 0.9)
+		return
+	if health >= max_health:
+		if game_hud:
+			game_hud.show_center_message("ЗДОРОВЬЕ ПОЛНОЕ", 0.65)
+		return
+	if not SaveData.consume_medkit():
+		if game_hud:
+			game_hud.show_center_message("АПТЕЧКИ ЗАКОНЧИЛИСЬ", 0.9)
+		return
+	medkits_used_life += 1
+	health = min(max_health, health + SaveData.MEDKIT_HEAL)
+	on_health_changed()
+	if game_hud:
+		game_hud.show_center_message("+%d HP • АПТЕЧЕК %d" % [SaveData.MEDKIT_HEAL, SaveData.medkits], 0.8)
+
+func throw_grenade():
+	var now = Time.get_ticks_msec() * 0.001
+	if not alive or now < grenade_ready_time or not is_instance_valid(game) or not game.combat_enabled:
+		return
+	if grenades_used_life >= SaveData.GRENADE_PER_LIFE:
+		if game_hud:
+			game_hud.show_center_message("ЛИМИТ: 2 ГРАНАТЫ ЗА ЖИЗНЬ", 0.9)
+		return
+	if not SaveData.consume_grenade():
+		if game_hud:
+			game_hud.show_center_message("ГРАНАТЫ ЗАКОНЧИЛИСЬ", 0.9)
+		return
+	grenades_used_life += 1
+	grenade_ready_time = now + 1.25
+	var origin = camera.global_position + (-camera.global_transform.basis.z) * 0.65 + Vector3.DOWN * 0.18
+	var direction = -camera.global_transform.basis.z
+	game.throw_grenade(self, origin, direction)
+	if game_hud:
+		game_hud.show_center_message("ГРАНАТА! • ОСТАЛОСЬ %d" % SaveData.grenades, 0.7)
+
+func consumable_text():
+	return {
+		"medkits": SaveData.medkits,
+		"medkits_life": SaveData.MEDKIT_PER_LIFE - medkits_used_life,
+		"grenades": SaveData.grenades,
+		"grenades_life": SaveData.GRENADE_PER_LIFE - grenades_used_life
+	}
 
 func select_slot(index):
 	if index < 0 or index >= SaveData.loadout.size():
@@ -452,9 +566,11 @@ func _build_knife_model():
 	knife_root = Node3D.new()
 	knife_root.visible = false
 	camera.add_child(knife_root)
-	_add_knife_box(Vector3(0.0, -0.03, 0.0), Vector3(0.13, 0.18, 0.46), Color("20262d"), Vector3(-8, 0, 0))
-	_add_knife_box(Vector3(0.0, 0.0, -0.34), Vector3(0.075, 0.055, 0.52), Color("dce8ef"))
-	_add_knife_box(Vector3(0.0, 0.0, -0.62), Vector3(0.02, 0.045, 0.18), Color("f5fbff"))
+	_add_knife_box(Vector3(0.02, -0.02, 0.08), Vector3(0.18, 0.2, 0.5), Color("20262d"), Vector3(-8, 0, 0))
+	_add_knife_box(Vector3(0.0, 0.0, -0.25), Vector3(0.26, 0.07, 0.08), Color("d9b35f"))
+	_add_knife_box(Vector3(0.0, 0.015, -0.58), Vector3(0.095, 0.055, 0.62), Color("dce8ef"), Vector3(0, 0, -2))
+	_add_knife_box(Vector3(0.035, 0.018, -0.91), Vector3(0.025, 0.045, 0.18), Color("f7fbff"), Vector3(0, 7, 0))
+	_add_knife_box(Vector3(0.1, -0.12, 0.1), Vector3(0.2, 0.16, 0.28), Color("b97855"), Vector3(-20, 0, 10))
 
 func _add_knife_box(pos, box_size, color, rotation_deg = Vector3.ZERO):
 	var mesh_instance = MeshInstance3D.new()
@@ -511,7 +627,15 @@ func _update_weapon_model():
 	weapon_root.position = Vector3(0.34, -0.31, -0.58)
 	weapon_root.rotation_degrees = Vector3(-3.0, 0.0, 0.0)
 
-	if current_weapon_id == "shotgun":
+	if current_weapon_id == "sniper":
+		_add_weapon_box(Vector3(0, 0, -0.1), Vector3(0.16, 0.15, 0.86), body_color)
+		_add_weapon_box(Vector3(0, 0.01, -0.76), Vector3(0.07, 0.07, 0.76), Color("20262d"))
+		_add_weapon_cylinder(Vector3(0, 0.16, -0.25), 0.075, 0.5, Color("151a20"), Vector3(90, 0, 0))
+		_add_weapon_box(Vector3(0, -0.18, 0.04), Vector3(0.12, 0.34, 0.18), Color("4d3324"), Vector3(-12, 0, 0))
+		_add_weapon_box(Vector3(0, -0.02, 0.38), Vector3(0.19, 0.18, 0.34), Color("5d3b24"), Vector3(2, 0, 0))
+		_add_weapon_box(Vector3(0, -0.12, -0.34), Vector3(0.08, 0.28, 0.1), Color("1c2229"), Vector3(-10, 0, 0))
+		_create_muzzle(Vector3(0, 0.01, -1.17))
+	elif current_weapon_id == "shotgun":
 		_add_weapon_box(Vector3(0, 0, -0.12), Vector3(0.19, 0.17, 0.7), body_color)
 		_add_weapon_box(Vector3(0, 0.015, -0.59), Vector3(0.09, 0.09, 0.42), Color("2b3038"))
 		_add_weapon_box(Vector3(0, -0.15, 0.0), Vector3(0.12, 0.28, 0.16), Color("20262d"), Vector3(-12, 0, 0))
@@ -548,6 +672,23 @@ func _add_weapon_box(pos, box_size, color, rotation_deg = Vector3.ZERO):
 	mat.albedo_color = color
 	mat.metallic = 0.38
 	mat.roughness = 0.3
+	mesh_instance.material_override = mat
+	weapon_root.add_child(mesh_instance)
+
+func _add_weapon_cylinder(pos, radius, height, color, rotation_deg = Vector3.ZERO):
+	var mesh_instance = MeshInstance3D.new()
+	var mesh = CylinderMesh.new()
+	mesh.top_radius = radius
+	mesh.bottom_radius = radius
+	mesh.height = height
+	mesh.radial_segments = 12
+	mesh_instance.mesh = mesh
+	mesh_instance.position = pos
+	mesh_instance.rotation_degrees = rotation_deg
+	var mat = StandardMaterial3D.new()
+	mat.albedo_color = color
+	mat.metallic = 0.48
+	mat.roughness = 0.26
 	mesh_instance.material_override = mat
 	weapon_root.add_child(mesh_instance)
 
@@ -592,7 +733,7 @@ func _update_weapon_visuals(delta):
 	var stats = current_stats()
 	var target_fov = float(stats.get("aim_fov", 60.0)) if aiming else 82.0
 	camera.fov = lerp(camera.fov, target_fov, min(1.0, delta * 11.0))
-	recoil = move_toward(recoil, 0.0, delta * 5.2)
+	recoil = move_toward(recoil, 0.0, delta * float(stats.get("recoil_recovery", 5.2)))
 	if reload_animation_time > 0.0:
 		reload_animation_time = max(0.0, reload_animation_time - delta)
 	if is_instance_valid(weapon_root):
@@ -624,6 +765,11 @@ func on_health_changed():
 			game_hud.release_controls()
 
 func on_respawned():
+	max_health = float(SaveData.player_max_health())
+	health = max_health
+	set_armor_capacity(SaveData.armor_capacity())
+	medkits_used_life = 0
+	grenades_used_life = 0
 	knife_animation_time = 0.0
 	if is_instance_valid(knife_root):
 		knife_root.visible = false

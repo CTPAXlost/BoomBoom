@@ -15,6 +15,8 @@ var fire_held = false
 var aim_held = false
 var reload_request = false
 var knife_request = false
+var medkit_request = false
+var grenade_request = false
 var auto_request = false
 var slot_request = -1
 var crosshair_enemy = false
@@ -45,6 +47,11 @@ var fire_button
 var aim_button
 var knife_button
 var reload_button
+var medkit_button
+var grenade_button
+var fps_label
+var countdown_overlay
+var countdown_label
 var slot_buttons = []
 var result_overlay
 var result_title
@@ -67,6 +74,14 @@ func _process(delta):
 		armor_label.modulate.a = 1.0 if player.max_armor > 0.0 else 0.42
 		ammo_label.text = player.ammo_text()
 		weapon_label.text = player.weapon_display_name()
+		var consumables = player.consumable_text()
+		if is_instance_valid(medkit_button):
+			medkit_button.set_text("АПТЕЧКА\n%d • жизнь %d" % [int(consumables.medkits), int(consumables.medkits_life)])
+		if is_instance_valid(grenade_button):
+			grenade_button.set_text("ГРАНАТА\n%d • жизнь %d" % [int(consumables.grenades), int(consumables.grenades_life)])
+	if is_instance_valid(fps_label):
+		fps_label.visible = SaveData.show_fps
+		fps_label.text = "FPS %d" % Engine.get_frames_per_second()
 	if center_message_time > 0.0:
 		center_message_time -= delta
 		center_message.modulate.a = clamp(center_message_time * 2.0, 0.0, 1.0)
@@ -118,6 +133,7 @@ func _build_hud():
 	_anchor_rect(knife_overlay, 0.5, 0.68, 0.5, 0.68, -150, -35, 150, 35)
 	root.add_child(knife_overlay)
 
+	_build_countdown_overlay()
 	_build_result_overlay()
 
 func _build_status(parent):
@@ -169,6 +185,11 @@ func _build_status(parent):
 	_anchor_rect(coins_label, 1.0, 0.0, 1.0, 0.0, -230, 18, -24, 68)
 	parent.add_child(coins_label)
 
+	fps_label = _label("FPS 60", 18, Color("8cff98"))
+	fps_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_anchor_rect(fps_label, 1.0, 0.0, 1.0, 0.0, -180, 66, -24, 98)
+	parent.add_child(fps_label)
+
 	weapon_label = _label("AR-4", 20, Color("9db4c7"))
 	weapon_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	weapon_label.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
@@ -212,6 +233,16 @@ func _build_controls(parent):
 	reload_button.pressed.connect(_request_reload)
 	parent.add_child(reload_button)
 
+	medkit_button = _touch_button("АПТЕЧКА", Color("8cff98"))
+	_anchor_rect(medkit_button, 1.0, 1.0, 1.0, 1.0, -450, -310, -292, -235)
+	medkit_button.pressed.connect(_request_medkit)
+	parent.add_child(medkit_button)
+
+	grenade_button = _touch_button("ГРАНАТА", Color("ff8a24"))
+	_anchor_rect(grenade_button, 1.0, 1.0, 1.0, 1.0, -500, -220, -350, -140)
+	grenade_button.pressed.connect(_request_grenade)
+	parent.add_child(grenade_button)
+
 	auto_button = _touch_button("", Color("8cff98"))
 	_anchor_rect(auto_button, 1.0, 0.0, 1.0, 0.0, -160, 92, -24, 158)
 	auto_button.pressed.connect(_request_auto)
@@ -230,7 +261,48 @@ func _build_controls(parent):
 		slots.add_child(slot_button)
 		slot_buttons.append(slot_button)
 
-	look_pad.set_blocked_controls([fire_button, aim_button, knife_button, reload_button, auto_button] + slot_buttons)
+	look_pad.set_blocked_controls(
+		[fire_button, aim_button, knife_button, reload_button, medkit_button, grenade_button, auto_button] + slot_buttons
+	)
+
+func _build_countdown_overlay():
+	countdown_overlay = Control.new()
+	countdown_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	countdown_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	countdown_overlay.visible = false
+	root.add_child(countdown_overlay)
+	var shade = ColorRect.new()
+	shade.color = Color(0.01, 0.025, 0.04, 0.34)
+	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	countdown_overlay.add_child(shade)
+	countdown_label = _label("5", 112, Color("ffca3a"))
+	countdown_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	countdown_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_anchor_rect(countdown_label, 0.5, 0.5, 0.5, 0.5, -280, -130, 280, 130)
+	countdown_overlay.add_child(countdown_label)
+
+func show_countdown(value):
+	if not is_instance_valid(countdown_overlay):
+		return
+	countdown_label.text = str(value)
+	countdown_label.add_theme_color_override(
+		"font_color",
+		Color("8cff98") if str(value) == "В БОЙ!" else Color("ffca3a")
+	)
+	countdown_overlay.visible = true
+
+func hide_countdown():
+	if is_instance_valid(countdown_overlay):
+		countdown_overlay.visible = false
+
+func set_combat_controls_enabled(value):
+	var enabled = bool(value)
+	for button in [fire_button, aim_button, knife_button, reload_button, medkit_button, grenade_button, auto_button] + slot_buttons:
+		if is_instance_valid(button):
+			button.set_enabled(enabled)
+	if not enabled:
+		release_controls()
 
 func _build_result_overlay():
 	result_overlay = Control.new()
@@ -368,6 +440,12 @@ func _request_reload():
 func _request_knife():
 	knife_request = true
 
+func _request_medkit():
+	medkit_request = true
+
+func _request_grenade():
+	grenade_request = true
+
 func _request_auto():
 	auto_request = true
 
@@ -384,6 +462,16 @@ func consume_reload():
 func consume_knife():
 	var value = knife_request
 	knife_request = false
+	return value
+
+func consume_medkit():
+	var value = medkit_request
+	medkit_request = false
+	return value
+
+func consume_grenade():
+	var value = grenade_request
+	grenade_request = false
 	return value
 
 func consume_auto_toggle():
@@ -438,11 +526,13 @@ func on_weapon_fired(hit_enemy, headshot = false, multiplier = 1.0):
 	if headshot:
 		show_center_message("В ГОЛОВУ!  ×%.2f" % float(multiplier), 0.75)
 
-func show_match_results(title, blue, red, rows, reward, elapsed):
+func show_match_results(title, blue, red, rows, reward, elapsed, xp_reward, progression):
 	release_controls()
 	result_title.text = "%s • БОЙ ОКОНЧЕН" % title
 	result_score.text = "СИНИЕ %d : %d КРАСНЫЕ" % [blue, red]
-	result_reward.text = "НАГРАДА +%d ◈" % reward
+	result_reward.text = "НАГРАДА +%d ◈ • ОПЫТ +%d" % [reward, xp_reward]
+	if bool(progression.get("leveled_up", false)):
+		result_title.text += " • НОВЫЙ УРОВЕНЬ %d!" % int(progression.get("level", 2))
 	var mins = int(elapsed / 60.0)
 	var secs = int(elapsed) % 60
 	result_time.text = "ВРЕМЯ %02d:%02d" % [mins, secs]
@@ -483,6 +573,8 @@ func release_controls():
 		joystick.force_release()
 	if is_instance_valid(look_pad):
 		look_pad.cancel_touch()
-	for button in [fire_button, aim_button, knife_button, reload_button, auto_button] + slot_buttons:
+	medkit_request = false
+	grenade_request = false
+	for button in [fire_button, aim_button, knife_button, reload_button, medkit_button, grenade_button, auto_button] + slot_buttons:
 		if is_instance_valid(button):
 			button.force_release()

@@ -23,7 +23,7 @@
 ```powershell
 git init
 git add .
-git commit -m "Initial Boom Arena prototype"
+git commit -m "Initial Boom Arena 0.7 prototype"
 git branch -M main
 git remote add origin https://github.com/ВАШ_ЛОГИН/boom-arena.git
 git push -u origin main

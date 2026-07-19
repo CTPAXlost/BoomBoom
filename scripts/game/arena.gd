@@ -12,6 +12,7 @@ var red_score = 0
 var match_elapsed = 0.0
 var score_limit = 25
 var match_active = true
+var combat_enabled = false
 var results_visible = false
 var match_coins = 0
 var player
@@ -22,19 +23,48 @@ var red_spawns = [Vector3(-3.0, 0.1, 9.2), Vector3(-1.0, 0.1, 9.4), Vector3(1.0,
 
 func _ready():
 	randomize()
+	_apply_graphics_quality()
 	_build_environment()
 	hud = HUDScript.new()
 	add_child(hud)
 	hud.continue_pressed.connect(_on_continue_pressed)
 	_spawn_teams()
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-	hud.show_center_message("ПЕРВЫЕ 25 УСТРАНЕНИЙ ПОБЕЖДАЮТ", 2.0)
+	_start_countdown()
+
+func _apply_graphics_quality():
+	var viewport = get_viewport()
+	if SaveData.graphics_quality == "low":
+		viewport.msaa_3d = Viewport.MSAA_DISABLED
+	elif SaveData.graphics_quality == "high":
+		viewport.msaa_3d = Viewport.MSAA_4X
+	else:
+		viewport.msaa_3d = Viewport.MSAA_2X
+
+func _start_countdown():
+	combat_enabled = false
+	hud.set_combat_controls_enabled(false)
+	for number in [5, 4, 3, 2, 1]:
+		if not match_active:
+			return
+		hud.show_countdown(str(number))
+		await get_tree().create_timer(1.0).timeout
+	if not match_active:
+		return
+	combat_enabled = true
+	hud.show_countdown("В БОЙ!")
+	hud.set_combat_controls_enabled(true)
+	await get_tree().create_timer(0.7).timeout
+	if match_active:
+		hud.hide_countdown()
+		hud.show_center_message("ПЕРВЫЕ 25 УСТРАНЕНИЙ ПОБЕЖДАЮТ", 1.8)
 
 func _process(delta):
 	_update_clouds(delta)
 	if not match_active:
 		return
-	match_elapsed += delta
+	if combat_enabled:
+		match_elapsed += delta
 	hud.update_match(blue_score, red_score, match_elapsed, match_coins, score_limit)
 
 func _unhandled_input(event):
@@ -57,7 +87,7 @@ func _build_environment():
 	light.rotation_degrees = Vector3(-55, -28, 0)
 	light.light_color = Color("fff5d6")
 	light.light_energy = 1.18
-	light.shadow_enabled = false
+	light.shadow_enabled = SaveData.graphics_quality == "high"
 	add_child(light)
 
 	_create_static_box(Vector3(0, -0.3, 0), Vector3(30, 0.6, 26), Color("4d9a45"))
@@ -84,10 +114,15 @@ func _build_environment():
 	_create_tree(Vector3(12.1, 0, 6.8), 1.0)
 	_create_tree(Vector3(-12.0, 0, 7.8), 0.9)
 	_create_tree(Vector3(12.4, 0, -7.7), 0.95)
+	_create_hideouts()
 	_create_grass_patches()
 	_create_cloud(Vector3(-10, 9.5, -4), 1.1)
 	_create_cloud(Vector3(1, 11.0, 2), 1.35)
-	_create_cloud(Vector3(11, 9.8, -1), 0.95)
+	if SaveData.graphics_quality != "low":
+		_create_cloud(Vector3(11, 9.8, -1), 0.95)
+	if SaveData.graphics_quality == "high":
+		_create_cloud(Vector3(-3, 12.0, -7), 0.8)
+		_create_cloud(Vector3(8, 11.5, 7), 1.05)
 
 func _create_barn(base, opening_sign, team_color):
 	var wall_color = Color("a94f3d")
@@ -115,8 +150,22 @@ func _create_side_fences():
 		_create_visual_box(Vector3(14.35, 0.65, z), Vector3(0.16, 0.18, 4.0), Color("9a6330"))
 		_create_visual_box(Vector3(14.35, 1.08, z), Vector3(0.16, 0.18, 4.0), Color("9a6330"))
 
+func _create_hideouts():
+	# Two compact wooden shelters and staggered cover create real hiding places.
+	for side in [-1.0, 1.0]:
+		var x = 6.6 * side
+		_create_static_box(Vector3(x, 1.15, -4.6), Vector3(3.4, 2.3, 0.28), Color("79502e"))
+		_create_static_box(Vector3(x - 1.55 * side, 1.15, -3.25), Vector3(0.28, 2.3, 2.7), Color("8b5a2b"))
+		_create_visual_box(Vector3(x, 2.42, -3.95), Vector3(3.7, 0.22, 3.0), Color("5b3528"), Vector3(0, 0, 8.0 * side))
+		_create_static_box(Vector3(x, 0.72, 5.2), Vector3(3.1, 1.44, 0.34), Color("8b5a2b"))
+		_create_static_box(Vector3(x + 1.38 * side, 0.72, 4.05), Vector3(0.34, 1.44, 2.6), Color("9a6330"))
+	_create_static_box(Vector3(-2.7, 0.8, 0.3), Vector3(0.38, 1.6, 3.8), Color("7b5433"))
+	_create_static_box(Vector3(2.7, 0.8, -0.3), Vector3(0.38, 1.6, 3.8), Color("7b5433"))
+	_create_static_box(Vector3(0, 0.62, 0), Vector3(2.8, 1.24, 0.36), Color("a46b32"))
+
 func _create_grass_patches():
-	for i in range(34):
+	var patch_count = 14 if SaveData.graphics_quality == "low" else 36 if SaveData.graphics_quality == "medium" else 72
+	for i in range(patch_count):
 		var x = randf_range(-13.5, 13.5)
 		var z = randf_range(-11.5, 11.5)
 		if abs(z) > 8.2 and abs(x) < 5.0:
@@ -245,7 +294,7 @@ func _create_team_pad(pos, color):
 func _spawn_teams():
 	player = PlayerScript.new()
 	add_child(player)
-	player.setup_player(self, 0, "Игрок", blue_spawns[0], hud)
+	player.setup_player(self, 0, SaveData.nickname, blue_spawns[0], hud)
 	var weapons = SaveData.main_weapon_ids()
 	var blue_names = ["Беркут", "Неон", "Шторм"]
 	for i in range(3):
@@ -325,6 +374,7 @@ func finish_match(aborted = false):
 	if not match_active:
 		return
 	match_active = false
+	combat_enabled = false
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	for actor in get_tree().get_nodes_in_group("combatants"):
 		if is_instance_valid(actor):
@@ -344,12 +394,26 @@ func finish_match(aborted = false):
 		else:
 			reward += 60
 	SaveData.add_coins(reward)
+	var xp_reward = 0
+	var progression = {"leveled_up": false, "level": SaveData.player_level, "xp": SaveData.experience}
+	if not aborted:
+		xp_reward = 140 + player.kills * 6 + player.assists * 3 + (60 if won else 25 if draw else 10)
+		progression = SaveData.add_experience(xp_reward)
 	var title = "БОЙ ПРЕРВАН"
 	if not aborted:
 		title = "НИЧЬЯ" if draw else ("ПОБЕДА!" if won else "ПОРАЖЕНИЕ")
 	await get_tree().create_timer(0.45).timeout
 	results_visible = true
-	hud.show_match_results(title, blue_score, red_score, _collect_statistics(), reward, match_elapsed)
+	hud.show_match_results(
+		title,
+		blue_score,
+		red_score,
+		_collect_statistics(),
+		reward,
+		match_elapsed,
+		xp_reward,
+		progression
+	)
 
 func _collect_statistics():
 	var blue_rows = []
@@ -384,6 +448,83 @@ func _on_continue_pressed():
 	if not results_visible:
 		return
 	match_finished.emit()
+
+func throw_grenade(owner, origin, direction):
+	if not combat_enabled or not is_instance_valid(owner):
+		return
+	var grenade = RigidBody3D.new()
+	grenade.position = origin
+	grenade.collision_layer = 0
+	grenade.collision_mask = 1
+	grenade.mass = 0.35
+	grenade.gravity_scale = 1.15
+	grenade.continuous_cd = true
+	var shape_node = CollisionShape3D.new()
+	var shape = SphereShape3D.new()
+	shape.radius = 0.13
+	shape_node.shape = shape
+	grenade.add_child(shape_node)
+	var mesh_instance = MeshInstance3D.new()
+	var mesh = SphereMesh.new()
+	mesh.radius = 0.13
+	mesh.height = 0.26
+	mesh_instance.mesh = mesh
+	var material = StandardMaterial3D.new()
+	material.albedo_color = Color("354538")
+	material.metallic = 0.55
+	material.roughness = 0.42
+	mesh_instance.material_override = material
+	grenade.add_child(mesh_instance)
+	add_child(grenade)
+	grenade.linear_velocity = direction.normalized() * 13.0 + Vector3.UP * 4.8
+	grenade.angular_velocity = Vector3(7.0, 10.0, 4.0)
+	await get_tree().create_timer(1.15).timeout
+	if is_instance_valid(grenade):
+		if match_active:
+			_explode_grenade(owner, grenade.global_position)
+		grenade.queue_free()
+
+func _explode_grenade(owner, position):
+	var radius = 4.5
+	for actor in get_tree().get_nodes_in_group("combatants"):
+		if not is_instance_valid(actor) or not actor.alive or actor.team == owner.team:
+			continue
+		if actor.global_position.distance_to(position) <= radius and _blast_has_line(position, actor):
+			actor.take_damage(SaveData.GRENADE_DAMAGE, owner)
+	var blast = MeshInstance3D.new()
+	var blast_mesh = SphereMesh.new()
+	blast_mesh.radius = 0.45
+	blast_mesh.height = 0.9
+	blast.mesh = blast_mesh
+	blast.position = position
+	var blast_mat = StandardMaterial3D.new()
+	blast_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	blast_mat.albedo_color = Color("ffb000")
+	blast_mat.emission_enabled = true
+	blast_mat.emission = Color("ff5a00")
+	blast.material_override = blast_mat
+	add_child(blast)
+	var light = OmniLight3D.new()
+	light.light_color = Color("ff8a24")
+	light.light_energy = 5.0
+	light.omni_range = 7.0
+	light.shadow_enabled = false
+	light.position = position + Vector3.UP * 0.4
+	add_child(light)
+	var tween = create_tween()
+	tween.tween_property(blast, "scale", Vector3.ONE * 7.0, 0.2)
+	await get_tree().create_timer(0.22).timeout
+	if is_instance_valid(blast):
+		blast.queue_free()
+	if is_instance_valid(light):
+		light.queue_free()
+
+func _blast_has_line(origin, actor):
+	var target_point = actor.global_position + Vector3.UP
+	var query = PhysicsRayQueryParameters3D.create(origin + Vector3.UP * 0.15, target_point)
+	query.collision_mask = 3
+	var hit = get_world_3d().direct_space_state.intersect_ray(query)
+	return hit.is_empty() or hit.get("collider") == actor
 
 func spawn_tracer(start, finish, color, hit_enemy = false):
 	var direction = finish - start

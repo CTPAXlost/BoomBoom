@@ -19,6 +19,8 @@ func _ensure_input_actions():
 		"move_right": KEY_D,
 		"reload": KEY_R,
 		"knife": KEY_Q,
+		"medkit": KEY_H,
+		"grenade": KEY_G,
 		"toggle_auto": KEY_F,
 		"slot_1": KEY_1,
 		"slot_2": KEY_2,

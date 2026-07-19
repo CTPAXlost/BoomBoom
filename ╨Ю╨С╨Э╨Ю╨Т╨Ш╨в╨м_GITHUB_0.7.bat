@@ -8,7 +8,7 @@ if errorlevel 1 goto nogit
 
 if not exist .git (
   echo Эта папка не является локальным Git-репозиторием.
-  echo Скопируйте содержимое версии 0.6 в папку вашего репозитория.
+  echo Скопируйте содержимое версии 0.7 в папку вашего репозитория.
   pause
   exit /b 1
 )
@@ -16,11 +16,14 @@ if not exist .git (
 if not exist .github\workflows\android.yml goto missing
 if not exist signing\boomarena-debug.keystore goto missing
 
-echo Обновление Boom Arena до 0.6...
+echo Обновление Boom Arena до 0.7...
+python scripts\validate_project.py
+if errorlevel 1 goto error
+
 git add -A
 if errorlevel 1 goto error
 
-git commit -m "Boom Arena 0.6 match results assists aiming ranges machinegun admin"
+git commit -m "Boom Arena 0.7 progression sniper aim consumables graphics"
 if errorlevel 1 echo Новых изменений для коммита нет или commit уже создан.
 
 git push origin main
@@ -44,6 +47,6 @@ exit /b 1
 
 :error
 echo.
-echo Ошибка Git. Проверьте репозиторий, ветку main и авторизацию GitHub.
+echo Ошибка проверки или Git. Проверьте файлы, ветку main и авторизацию GitHub.
 pause
 exit /b 1

@@ -10,6 +10,7 @@ var hold_mode = false
 var touch_index = -1
 var mouse_down = false
 var down = false
+var enabled = true
 var label
 var normal_style
 var pressed_style
@@ -55,7 +56,15 @@ func set_text(value):
 	if is_instance_valid(label):
 		label.text = text
 
+func set_enabled(value):
+	enabled = bool(value)
+	modulate.a = 1.0 if enabled else 0.38
+	if not enabled:
+		force_release()
+
 func _gui_input(event):
+	if not enabled:
+		return
 	if event is InputEventScreenTouch:
 		if event.pressed and touch_index == -1:
 			touch_index = event.index
@@ -75,6 +84,8 @@ func _gui_input(event):
 		accept_event()
 
 func _input(event):
+	if not enabled:
+		return
 	if touch_index >= 0 and event is InputEventScreenTouch and not event.pressed and event.index == touch_index:
 		_release_touch(get_global_rect().has_point(event.position))
 	elif mouse_down and event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:

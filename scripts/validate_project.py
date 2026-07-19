@@ -135,8 +135,8 @@ for required_setting in [
     'export_path="build/BoomArena-debug.apk"',
     'architectures/arm64-v8a=true',
     'package/unique_name="com.franbpm.boomarena"',
-    'version/code=6',
-    'version/name="0.6.0"',
+    'version/code=7',
+    'version/name="0.7.0"',
 ]:
     if required_setting not in preset_text:
         errors.append(f"Android export preset is missing: {required_setting}")
@@ -156,9 +156,45 @@ if arena_path.is_file():
 save_path = root / "autoload/save_data.gd"
 if save_path.is_file():
     save_text = save_path.read_text(encoding="utf-8")
-    for required_weapon_rule in ('"machinegun"', '"range": 20.0', '"range": 10.0', '"range": 35.0'):
+    for required_weapon_rule in ('"machinegun"', '"sniper"', '"range": 20.0', '"range": 10.0', '"range": 35.0', '"range": 70.0'):
         if required_weapon_rule not in save_text:
             errors.append(f"Weapon rule is missing from save_data.gd: {required_weapon_rule}")
+
+for feature_file, required_rules in {
+    "autoload/save_data.gd": (
+        "aim_assist",
+        "graphics_quality",
+        "show_fps",
+        "MEDKIT_PER_LIFE = 10",
+        "GRENADE_PER_LIFE = 2",
+        "LEVEL_2_XP = 250",
+        "ARMOR_CAPACITIES = [0, 100, 200, 300]",
+    ),
+    "scripts/game/arena.gd": (
+        "func _start_countdown",
+        "combat_enabled = false",
+        "func throw_grenade",
+        "func _create_hideouts",
+        "add_experience",
+    ),
+    "scripts/game/player.gd": (
+        "func _apply_soft_aim",
+        "func use_medkit",
+        "func throw_grenade",
+        'current_weapon_id == "sniper"',
+    ),
+    "scripts/ui/menu_screen.gd": (
+        "AIM — мягкая помощь",
+        "КАЧЕСТВО ГРАФИКИ",
+        "СОХРАНИТЬ",
+    ),
+}.items():
+    feature_path = root / feature_file
+    if feature_path.is_file():
+        feature_text = feature_path.read_text(encoding="utf-8")
+        for rule in required_rules:
+            if rule not in feature_text:
+                errors.append(f"Version 0.7 feature is missing from {feature_file}: {rule}")
 
 combatant_path = root / "scripts/game/combatant.gd"
 if combatant_path.is_file():
