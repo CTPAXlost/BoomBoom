@@ -4,7 +4,7 @@ setlocal
 
 if not exist ".git" (
   echo В этой папке нет каталога .git.
-  echo Скопируйте содержимое Boom Arena 0.8 в локальную папку вашего репозитория.
+  echo Скопируйте содержимое Boom Arena 0.8.1 в локальную папку вашего репозитория.
   pause
   exit /b 1
 )
@@ -24,9 +24,9 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo Отправка Boom Arena 0.8...
+echo Отправка Boom Arena 0.8.1...
 git add -A
-git commit -m "Boom Arena 0.8 saloon control shop audio scoring reload"
+git commit -m "Boom Arena 0.8.1 saloon control shop audio scoring reload"
 if errorlevel 1 echo Возможно, изменения уже зафиксированы.
 git push
 if errorlevel 1 (

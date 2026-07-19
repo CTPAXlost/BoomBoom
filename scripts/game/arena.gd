@@ -1,6 +1,7 @@
 extends Node3D
 class_name BoomArena
 
+signal arena_ready
 signal match_finished
 
 const PlayerScript = preload("res://scripts/game/player.gd")
@@ -38,6 +39,7 @@ func _ready():
 	randomize()
 	mode_id = SaveData.selected_map
 	score_limit = 1000 if mode_id == "saloon" else 25
+	print("Boom Arena: building map ", mode_id)
 	_apply_graphics_quality()
 	_build_environment()
 	hud = HUDScript.new()
@@ -45,7 +47,9 @@ func _ready():
 	hud.continue_pressed.connect(_on_continue_pressed)
 	_spawn_teams()
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-	_start_countdown()
+	print("Boom Arena: arena ready")
+	arena_ready.emit()
+	call_deferred("_start_countdown")
 
 func _apply_graphics_quality():
 	var viewport = get_viewport()

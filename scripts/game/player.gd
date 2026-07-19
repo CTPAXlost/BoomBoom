@@ -169,6 +169,12 @@ func _physics_process(delta):
 	_update_weapon_visuals(delta)
 
 func _handle_weapon_selection():
+	for i in range(4):
+		if Input.is_action_just_pressed("slot_%d" % (i + 1)):
+			select_slot(i)
+	var hud_slot = game_hud.consume_slot_request() if game_hud else -1
+	if hud_slot >= 0:
+		select_slot(hud_slot)
 
 func _handle_move(delta):
 	var input_vec = Input.get_vector("move_left", "move_right", "move_forward", "move_back")

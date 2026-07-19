@@ -102,10 +102,25 @@ def balanced_delimiters(text: str, relative: Path) -> None:
         errors.append(f"Unclosed '{char}' in {relative}:{line_no}")
 
 
+def reject_empty_function_bodies(text: str, relative: Path) -> None:
+    lines = text.splitlines()
+    function_header = re.compile(r"^func\s+[A-Za-z_][A-Za-z0-9_]*\s*\(.*\)\s*(?:->\s*[^:]+)?\s*:\s*$")
+    for index, line in enumerate(lines):
+        if not function_header.match(line):
+            continue
+        cursor = index + 1
+        while cursor < len(lines) and (not lines[cursor].strip() or lines[cursor].lstrip().startswith("#")):
+            cursor += 1
+        if cursor >= len(lines) or not lines[cursor].startswith(("\t", "    ")):
+            errors.append(f"Empty function body without pass/code: {relative}:{index + 1}")
+
+
+
 for path in sorted(root.rglob("*.gd")):
     text = path.read_text(encoding="utf-8")
     relative = path.relative_to(root)
     balanced_delimiters(text, relative)
+    reject_empty_function_bodies(text, relative)
     for rel in resource_pattern.findall(text):
         if not (root / rel).exists():
             errors.append(f"Broken resource reference: {relative} -> res://{rel}")
@@ -153,8 +168,8 @@ for required_setting in [
     'export_path="build/BoomArena-debug.apk"',
     'architectures/arm64-v8a=true',
     'package/unique_name="com.franbpm.boomarena"',
-    'version/code=8',
-    'version/name="0.8.0"',
+    'version/code=9',
+    'version/name="0.8.1"',
 ]:
     if required_setting not in preset_text:
         errors.append(f"Android export preset is missing: {required_setting}")
@@ -170,15 +185,19 @@ checks = {
         'score_limit = 1000 if mode_id == "saloon" else 25',
         "func _update_control_zone", "zone_score_accumulator", "_add_team_score(active_team, 5)",
         "FIRST BLOOD", "DOUBLE KILL", "TRIPLE KILL", "UNSTOPPABLE",
-        "func _build_saloon", "func get_bot_objective", "show_match_results",
+        "func _build_saloon", "func get_bot_objective", "show_match_results", "signal arena_ready",
     ],
     "scripts/game/bot.gd": [
         "bot_mag", "reload_finish_time", "func _start_reload", "func _finish_reload",
         "func _update_footsteps", "get_bot_objective",
     ],
     "scripts/game/player.gd": [
-        "func _handle_weapon_selection", "func _update_footsteps", "func _play_weapon_sound",
+        "func _handle_weapon_selection", "consume_slot_request", "Input.is_action_just_pressed",
+        "func _update_footsteps", "func _play_weapon_sound",
         '{"method": "knife", "headshot": false}', "headshot_damage_multiplier",
+    ],
+    "scripts/main.gd": [
+        "ResourceLoader.load", "func _watch_arena_startup", "BOOM_ARENA_SMOKE_TEST_OK",
     ],
     "scripts/ui/menu_screen.gd": [
         "МАГАЗИН", "ТАКТИЧЕСКАЯ КАСКА", "StoreIconScript", "_select_map",

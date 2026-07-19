@@ -33,6 +33,8 @@ var loadout_status
 var map_status
 var admin_coins
 var admin_status
+var start_button
+var start_status
 
 func _ready():
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -93,7 +95,7 @@ func _build_header():
 	var title = make_label("BOOM ARENA", 42, Color("23e6ff"))
 	title.position = Vector2(48, 28)
 	add_child(title)
-	var subtitle = make_label("МОБИЛЬНЫЙ FPS • ПРОТОТИП 0.8", 18, Color("9db4c7"))
+	var subtitle = make_label("МОБИЛЬНЫЙ FPS • ПРОТОТИП 0.8.1", 18, Color("9db4c7"))
 	subtitle.position = Vector2(51, 83)
 	add_child(subtitle)
 	coins_label = make_label("", 28, Color("ffca3a"))
@@ -110,7 +112,7 @@ func _build_header():
 func _build_main_panel():
 	var panel = PanelContainer.new()
 	panel.position = Vector2(48, 135)
-	panel.size = Vector2(480, 525)
+	panel.size = Vector2(480, 555)
 	panel.add_theme_stylebox_override("panel", panel_style())
 	add_child(panel)
 	var box = VBoxContainer.new()
@@ -156,12 +158,16 @@ func _build_main_panel():
 	nickname_status = make_label("Русские и английские символы поддерживаются", 13, Color("7893a8"))
 	box.add_child(nickname_status)
 
-	var start = Button.new()
-	start.text = "НАЧАТЬ БОЙ"
-	start.custom_minimum_size = Vector2(420, 54)
-	style_button(start, Color("23e6ff"))
-	start.pressed.connect(func(): start_match.emit())
-	box.add_child(start)
+	start_button = Button.new()
+	start_button.text = "НАЧАТЬ БОЙ"
+	start_button.custom_minimum_size = Vector2(420, 54)
+	style_button(start_button, Color("23e6ff"))
+	start_button.pressed.connect(func(): start_match.emit())
+	box.add_child(start_button)
+	start_status = make_label("", 14, Color("8cff98"))
+	start_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	start_status.custom_minimum_size = Vector2(420, 24)
+	box.add_child(start_status)
 	var shop = Button.new()
 	shop.text = "МАГАЗИН И СНАРЯЖЕНИЕ"
 	shop.custom_minimum_size = Vector2(420, 40)
@@ -184,6 +190,22 @@ func _build_main_panel():
 	loadout_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	loadout_status.custom_minimum_size = Vector2(420, 58)
 	box.add_child(loadout_status)
+
+func show_start_loading():
+	if is_instance_valid(start_button):
+		start_button.disabled = true
+		start_button.text = "ЗАГРУЗКА БОЯ..."
+	if is_instance_valid(start_status):
+		start_status.text = "Создаём карту, бойцов и интерфейс"
+		start_status.add_theme_color_override("font_color", Color("8cff98"))
+
+func show_start_error(message):
+	if is_instance_valid(start_button):
+		start_button.disabled = false
+		start_button.text = "НАЧАТЬ БОЙ"
+	if is_instance_valid(start_status):
+		start_status.text = str(message)
+		start_status.add_theme_color_override("font_color", Color("ef476f"))
 
 func _build_shop():
 	shop_panel = PanelContainer.new()

@@ -25,6 +25,39 @@ jobs:
           python3 -m pip install --disable-pip-version-check gdtoolkit==4.5.0
           gdlint autoload scripts
 
+      - name: Install Godot runtime for battle smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          GODOT_DIR="$RUNNER_TEMP/boomarena-godot"
+          mkdir -p "$GODOT_DIR"
+          curl -L --fail --retry 3 \
+            -o "$GODOT_DIR/godot.zip" \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.1-stable/Godot_v4.7.1-stable_linux.x86_64.zip"
+          unzip -q "$GODOT_DIR/godot.zip" -d "$GODOT_DIR"
+          GODOT_BIN="$(find "$GODOT_DIR" -maxdepth 2 -type f -name 'Godot_v4.7.1-stable_linux.x86_64' -print -quit)"
+          test -n "$GODOT_BIN"
+          chmod +x "$GODOT_BIN"
+          echo "GODOT_SMOKE_BIN=$GODOT_BIN" >> "$GITHUB_ENV"
+          "$GODOT_BIN" --version
+
+      - name: Run real battle scene smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -o pipefail
+          timeout 45s "$GODOT_SMOKE_BIN" --headless --path . -- --smoke-test 2>&1 | tee smoke-test.log
+          grep -q "BOOM_ARENA_SMOKE_TEST_OK" smoke-test.log
+
+      - name: Upload smoke log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BoomArena-Smoke-Test-Log
+          path: smoke-test.log
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
@@ -101,6 +134,9 @@ jobs:
           head -n 20 artifacts/apk-badging.txt
 
           cp "$APK_PATH" artifacts/BoomArena-debug.apk
+          if [ -f smoke-test.log ]; then
+            cp smoke-test.log artifacts/smoke-test.log
+          fi
           test -s artifacts/BoomArena-debug.apk
           sha256sum artifacts/BoomArena-debug.apk | tee artifacts/BoomArena-debug.apk.sha256
           ls -lh artifacts/BoomArena-debug.apk artifacts/BoomArena-debug.apk.sha256
@@ -113,5 +149,6 @@ jobs:
             artifacts/BoomArena-debug.apk
             artifacts/BoomArena-debug.apk.sha256
             artifacts/apk-badging.txt
+            artifacts/smoke-test.log
           if-no-files-found: error
           retention-days: 14

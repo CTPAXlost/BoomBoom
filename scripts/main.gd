@@ -1,15 +1,21 @@
 extends Node
 
 const MenuScreen = preload("res://scripts/ui/menu_screen.gd")
-const Arena = preload("res://scripts/game/arena.gd")
+const ARENA_SCRIPT_PATH = "res://scripts/game/arena.gd"
 
 var current_screen
+var pending_screen
+var startup_attempt = 0
+var smoke_test_mode = false
 
 func _ready():
 	SaveData.apply_runtime_settings()
 	DisplayServer.screen_set_orientation(DisplayServer.SCREEN_SENSOR_LANDSCAPE)
 	_ensure_input_actions()
+	smoke_test_mode = OS.get_cmdline_user_args().has("--smoke-test")
 	show_menu()
+	if smoke_test_mode:
+		call_deferred("start_match")
 
 func _ensure_input_actions():
 	var keys = {
@@ -59,7 +65,14 @@ func clear_screen():
 		current_screen.queue_free()
 	current_screen = null
 
+func _clear_pending_screen():
+	if is_instance_valid(pending_screen):
+		pending_screen.queue_free()
+	pending_screen = null
+
 func show_menu():
+	startup_attempt += 1
+	_clear_pending_screen()
 	clear_screen()
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	current_screen = MenuScreen.new()
@@ -67,10 +80,59 @@ func show_menu():
 	current_screen.start_match.connect(start_match)
 
 func start_match():
-	clear_screen()
-	current_screen = Arena.new()
-	add_child(current_screen)
-	current_screen.match_finished.connect(_on_match_finished)
+	if is_instance_valid(pending_screen):
+		return
+	var arena_script = ResourceLoader.load(ARENA_SCRIPT_PATH)
+	if arena_script == null:
+		_show_start_error("Не удалось загрузить боевую сцену.")
+		return
+	var arena = arena_script.new()
+	if arena == null:
+		_show_start_error("Не удалось создать боевую сцену.")
+		return
+	pending_screen = arena
+	if not pending_screen.has_signal("arena_ready"):
+		_show_start_error("В боевой сцене отсутствует сигнал готовности.")
+		_clear_pending_screen()
+		return
+	pending_screen.connect("arena_ready", Callable(self, "_on_arena_ready"), CONNECT_ONE_SHOT)
+	pending_screen.connect("match_finished", Callable(self, "_on_match_finished"))
+	if is_instance_valid(current_screen) and current_screen.has_method("show_start_loading"):
+		current_screen.show_start_loading()
+	startup_attempt += 1
+	var attempt = startup_attempt
+	_watch_arena_startup(attempt)
+	add_child(pending_screen)
+
+func _watch_arena_startup(attempt):
+	await get_tree().create_timer(8.0).timeout
+	if attempt != startup_attempt or not is_instance_valid(pending_screen):
+		return
+	_clear_pending_screen()
+	_show_start_error("Боевая сцена не запустилась. Сборка остановлена безопасно.")
+	if smoke_test_mode:
+		get_tree().quit(2)
+
+func _on_arena_ready():
+	if not is_instance_valid(pending_screen):
+		return
+	startup_attempt += 1
+	var old_screen = current_screen
+	current_screen = pending_screen
+	pending_screen = null
+	if is_instance_valid(old_screen):
+		old_screen.queue_free()
+	if smoke_test_mode:
+		print("BOOM_ARENA_SMOKE_TEST_OK")
+		await get_tree().process_frame
+		get_tree().quit(0)
+
+func _show_start_error(message):
+	push_error(message)
+	if is_instance_valid(current_screen) and current_screen.has_method("show_start_error"):
+		current_screen.show_start_error(message)
+	if smoke_test_mode:
+		get_tree().quit(1)
 
 func _on_match_finished():
 	show_menu()
