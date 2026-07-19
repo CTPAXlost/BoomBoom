@@ -23,6 +23,26 @@ const GRENADE_PER_LIFE = 2
 const GRENADE_DAMAGE = 100.0
 const HELMET_PRICE = 2200
 const HELMET_UNLOCK_LEVEL = 3
+const FLASH_GRENADE_PRICE = 600
+const FLASH_GRENADE_UNLOCK_LEVEL = 3
+const FLASH_GRENADE_PER_LIFE = 2
+const REPAIR_KIT_PRICE = 2000
+const REPAIR_KIT_UNLOCK_LEVEL = 3
+const REPAIR_KIT_RESTORE = 100
+const REPAIR_KIT_PER_LIFE = 1
+const DEFAULT_CONTROL_LAYOUT = {
+	"joystick": {"x": 0.02, "y": 0.48, "w": 0.31, "h": 0.50},
+	"fire": {"x": 0.88, "y": 0.70, "w": 0.10, "h": 0.25},
+	"aim": {"x": 0.77, "y": 0.70, "w": 0.10, "h": 0.13},
+	"knife": {"x": 0.77, "y": 0.84, "w": 0.09, "h": 0.12},
+	"reload": {"x": 0.83, "y": 0.56, "w": 0.07, "h": 0.11},
+	"medkit": {"x": 0.68, "y": 0.54, "w": 0.12, "h": 0.12},
+	"grenade": {"x": 0.68, "y": 0.68, "w": 0.12, "h": 0.12},
+	"flash": {"x": 0.55, "y": 0.68, "w": 0.12, "h": 0.12},
+	"repair": {"x": 0.55, "y": 0.54, "w": 0.12, "h": 0.12},
+	"auto": {"x": 0.88, "y": 0.13, "w": 0.10, "h": 0.10},
+	"slots": {"x": 0.35, "y": 0.87, "w": 0.30, "h": 0.11}
+}
 const ARMOR_CAPACITIES = [0, 100, 200, 300, 400, 500]
 const ARMOR_COSTS = [500, 1000, 1600, 2400, 3500]
 const ARMOR_UNLOCK_LEVELS = [1, 2, 2, 3, 4]
@@ -61,7 +81,11 @@ var player_level = 1
 var experience = 0
 var medkits = 30
 var grenades = 30
+var flash_grenades = 0
+var repair_kits = 0
+var control_layout = DEFAULT_CONTROL_LAYOUT.duplicate(true)
 var selected_map = "farm"
+var training_weapon = "rifle"
 
 func _ready():
 	load_game()
@@ -83,7 +107,12 @@ func map_catalog():
 		"saloon": {
 			"name": "Салун",
 			"mode": "Контроль зоны",
-			"description": "Захватывай точку 5 секунд и набери 1000 командных очков."
+			"description": "Одна центральная точка внутри салуна. Захват 5 секунд, цель 1000 очков."
+		},
+		"training": {
+			"name": "Полигон",
+			"mode": "Тренировка",
+			"description": "Неподвижные боты не стреляют. Боеприпасы и гранаты не расходуются."
 		}
 	}
 
@@ -392,14 +421,30 @@ func buy_helmet():
 
 func buy_consumable(id, amount = 1):
 	var count = maxi(1, int(amount))
-	var unit_price = MEDKIT_PRICE if id == "medkit" else GRENADE_PRICE if id == "grenade" else 0
+	var unit_price = 0
+	if id == "medkit":
+		unit_price = MEDKIT_PRICE
+	elif id == "grenade":
+		unit_price = GRENADE_PRICE
+	elif id == "flash":
+		if player_level < FLASH_GRENADE_UNLOCK_LEVEL:
+			return false
+		unit_price = FLASH_GRENADE_PRICE
+	elif id == "repair":
+		if player_level < REPAIR_KIT_UNLOCK_LEVEL:
+			return false
+		unit_price = REPAIR_KIT_PRICE
 	if unit_price <= 0 or coins < unit_price * count:
 		return false
 	coins -= unit_price * count
 	if id == "medkit":
 		medkits += count
-	else:
+	elif id == "grenade":
 		grenades += count
+	elif id == "flash":
+		flash_grenades += count
+	elif id == "repair":
+		repair_kits += count
 	save_game()
 	return true
 
@@ -416,6 +461,43 @@ func consume_grenade():
 	grenades -= 1
 	save_game()
 	return true
+
+func consume_flash_grenade():
+	if flash_grenades <= 0:
+		return false
+	flash_grenades -= 1
+	save_game()
+	return true
+
+func consume_repair_kit():
+	if repair_kits <= 0:
+		return false
+	repair_kits -= 1
+	save_game()
+	return true
+
+func set_control_layout(value):
+	if typeof(value) != TYPE_DICTIONARY:
+		return
+	var merged = DEFAULT_CONTROL_LAYOUT.duplicate(true)
+	for key in DEFAULT_CONTROL_LAYOUT:
+		if not value.has(key) or typeof(value[key]) != TYPE_DICTIONARY:
+			continue
+		var entry = value[key]
+		merged[key] = {
+			"x": clamp(float(entry.get("x", merged[key].x)), 0.0, 0.95),
+			"y": clamp(float(entry.get("y", merged[key].y)), 0.0, 0.95),
+			"w": clamp(float(entry.get("w", merged[key].w)), 0.05, 0.45),
+			"h": clamp(float(entry.get("h", merged[key].h)), 0.05, 0.55)
+		}
+		merged[key].x = min(float(merged[key].x), 1.0 - float(merged[key].w))
+		merged[key].y = min(float(merged[key].y), 1.0 - float(merged[key].h))
+	control_layout = merged
+	save_game()
+
+func reset_control_layout():
+	control_layout = DEFAULT_CONTROL_LAYOUT.duplicate(true)
+	save_game()
 
 func equip_weapon(id, slot):
 	if slot < 0 or slot >= 4:
@@ -478,6 +560,13 @@ func set_nickname(value):
 	nickname = clean
 	save_game()
 
+func set_training_weapon(value):
+	var id = str(value)
+	if not MAIN_WEAPONS.has(id):
+		id = "rifle"
+	training_weapon = id
+	save_game()
+
 func set_selected_map(value):
 	var requested = str(value)
 	if not MAP_IDS.has(requested):
@@ -522,7 +611,11 @@ func save_game():
 		"experience": experience,
 		"medkits": medkits,
 		"grenades": grenades,
-		"selected_map": selected_map
+		"flash_grenades": flash_grenades,
+		"repair_kits": repair_kits,
+		"control_layout": control_layout,
+		"selected_map": selected_map,
+		"training_weapon": training_weapon
 	}
 	var file = FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if file:
@@ -551,8 +644,12 @@ func load_game():
 				experience = int(parsed.get("experience", experience))
 				medkits = int(parsed.get("medkits", medkits))
 				grenades = int(parsed.get("grenades", grenades))
+				flash_grenades = int(parsed.get("flash_grenades", flash_grenades))
+				repair_kits = int(parsed.get("repair_kits", repair_kits))
+				control_layout = parsed.get("control_layout", control_layout)
 				helmet_owned = bool(parsed.get("helmet_owned", helmet_owned))
 				selected_map = str(parsed.get("selected_map", selected_map))
+				training_weapon = str(parsed.get("training_weapon", training_weapon))
 				if parsed.has("armor_level"):
 					armor_level = int(parsed.get("armor_level", armor_level))
 				elif bool(parsed.get("armor_owned", false)):
@@ -589,11 +686,16 @@ func _migrate_save():
 		graphics_quality = "medium"
 	if not MAP_IDS.has(selected_map):
 		selected_map = "farm"
+	if not MAIN_WEAPONS.has(training_weapon):
+		training_weapon = "rifle"
 	armor_level = clampi(armor_level, 0, ARMOR_CAPACITIES.size() - 1)
 	experience = maxi(0, experience)
 	player_level = level_for_experience(experience)
 	medkits = maxi(0, medkits)
 	grenades = maxi(0, grenades)
+	flash_grenades = maxi(0, flash_grenades)
+	repair_kits = maxi(0, repair_kits)
+	set_control_layout(control_layout)
 	var clean_name = str(nickname).strip_edges().replace("\n", " ").replace("\r", " ")
 	if clean_name.length() > 18:
 		clean_name = clean_name.left(18)

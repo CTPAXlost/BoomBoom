@@ -2,7 +2,7 @@ extends "res://scripts/game/combatant.gd"
 class_name BotCombatant
 
 var target
-var speed = 4.05
+var speed = 3.05
 var fire_ready = 0.0
 var retarget_ready = 0.0
 var strafe_sign = 1.0
@@ -29,6 +29,8 @@ var reload_audio
 var footstep_audio
 var footstep_timer = 0.0
 var footstep_index = 0
+var training_dummy = false
+var idle_turn = 0.0
 
 const FOOTSTEP_SOUND_PATHS = [
 	"res://assets/audio/footstep1.wav",
@@ -72,6 +74,13 @@ func _build_body():
 	body_root.add_child(head_mesh)
 	var helmet = _body_box(Vector3(0, 2.09, 0), Vector3(0.48, 0.18, 0.48), Color("26313a"))
 	body_root.add_child(helmet)
+	var face = _body_box(Vector3(0, 1.92, -0.235), Vector3(0.27, 0.18, 0.035), Color("efc09b"))
+	body_root.add_child(face)
+	var nose = _body_box(Vector3(0, 1.91, -0.27), Vector3(0.055, 0.07, 0.055), Color("d99770"))
+	body_root.add_child(nose)
+	for eye_x in [-0.07, 0.07]:
+		var eye = _body_box(Vector3(eye_x, 1.96, -0.275), Vector3(0.035, 0.025, 0.018), Color("18202a"))
+		body_root.add_child(eye)
 
 	left_arm = _limb_pivot(Vector3(-0.47, 1.62, 0), Vector3(0.18, 0.62, 0.2), Color.WHITE)
 	right_arm = _limb_pivot(Vector3(0.47, 1.62, 0), Vector3(0.18, 0.62, 0.2), Color.WHITE)
@@ -81,6 +90,10 @@ func _build_body():
 	body_root.add_child(right_arm)
 	body_root.add_child(left_leg)
 	body_root.add_child(right_leg)
+	var left_boot = _body_box(Vector3(-0.19, 0.12, -0.07), Vector3(0.26, 0.18, 0.42), Color("171d24"))
+	var right_boot = _body_box(Vector3(0.19, 0.12, -0.07), Vector3(0.26, 0.18, 0.42), Color("171d24"))
+	body_root.add_child(left_boot)
+	body_root.add_child(right_boot)
 
 	weapon_root = Node3D.new()
 	weapon_root.position = Vector3(0.2, 1.42, -0.38)
@@ -130,7 +143,18 @@ func _body_box(pos, size_value, color):
 func _limb_pivot(pos, size_value, color):
 	var pivot = Node3D.new()
 	pivot.position = pos
-	var limb = _body_box(Vector3(0, -size_value.y * 0.5, 0), size_value, color)
+	var limb = MeshInstance3D.new()
+	var mesh = CapsuleMesh.new()
+	mesh.radius = min(float(size_value.x), float(size_value.z)) * 0.5
+	mesh.height = float(size_value.y)
+	mesh.radial_segments = 12
+	mesh.rings = 5
+	limb.mesh = mesh
+	limb.position = Vector3(0, -size_value.y * 0.5, 0)
+	var mat = StandardMaterial3D.new()
+	mat.albedo_color = color
+	mat.roughness = 0.7
+	limb.material_override = mat
 	pivot.add_child(limb)
 	return pivot
 
@@ -175,17 +199,19 @@ func _build_weapon_model():
 	var color = stats.color
 	if weapon_id == "shotgun":
 		_add_weapon_box(Vector3(0, 0, -0.15), Vector3(0.17, 0.15, 0.72), color)
-		_add_weapon_box(Vector3(0, 0, -0.66), Vector3(0.07, 0.07, 0.42), Color("20262d"))
+		_add_weapon_cylinder(Vector3(0, 0, -0.66), 0.045, 0.48, Color("20262d"))
+		_add_weapon_cylinder(Vector3(0.08, 0, -0.64), 0.03, 0.43, Color("20262d"))
 		_add_weapon_box(Vector3(0, -0.08, 0.28), Vector3(0.18, 0.18, 0.3), Color("6a4327"))
 		muzzle = Vector3(0, 0, -0.92)
 	elif weapon_id == "machinegun":
 		_add_weapon_box(Vector3(0, 0, -0.12), Vector3(0.22, 0.2, 0.78), color)
-		_add_weapon_box(Vector3(0, 0, -0.7), Vector3(0.08, 0.08, 0.48), Color("20262d"))
+		_add_weapon_cylinder(Vector3(0, 0, -0.72), 0.047, 0.58, Color("20262d"))
 		_add_weapon_box(Vector3(0, -0.19, 0.05), Vector3(0.25, 0.34, 0.28), Color("333b45"))
 		muzzle = Vector3(0, 0, -0.98)
 	elif weapon_id == "sniper":
 		_add_weapon_box(Vector3(0, 0, -0.18), Vector3(0.15, 0.14, 0.92), color)
-		_add_weapon_box(Vector3(0, 0, -0.88), Vector3(0.055, 0.055, 0.65), Color("20262d"))
+		_add_weapon_cylinder(Vector3(0, 0, -0.9), 0.036, 0.74, Color("20262d"))
+		_add_weapon_cylinder(Vector3(0, 0.13, -0.26), 0.055, 0.46, Color("111820"))
 		_add_weapon_box(Vector3(0, 0.13, -0.26), Vector3(0.12, 0.12, 0.46), Color("111820"))
 		_add_weapon_box(Vector3(0, -0.04, 0.38), Vector3(0.18, 0.16, 0.36), Color("5d3b24"))
 		muzzle = Vector3(0, 0, -1.25)
@@ -198,7 +224,8 @@ func _build_weapon_model():
 		elif weapon_id == "rifle_phoenix":
 			length = 0.84
 		_add_weapon_box(Vector3(0, 0, -0.16), Vector3(0.18, 0.16, length), color)
-		_add_weapon_box(Vector3(0, 0, -0.62), Vector3(0.065, 0.065, 0.38), Color("20262d"))
+		_add_weapon_cylinder(Vector3(0, 0, -0.62), 0.04, 0.44, Color("20262d"))
+		_add_weapon_box(Vector3(0, 0.11, -0.2), Vector3(0.08, 0.06, 0.18), Color("111820"))
 		_add_weapon_box(Vector3(0, -0.14, 0.22), Vector3(0.16, 0.28, 0.25), Color("303944"))
 		muzzle = Vector3(0, 0, -0.84 - max(0.0, length - 0.66) * 0.5)
 
@@ -209,14 +236,38 @@ func _add_weapon_box(pos, size_value, color):
 	mat.roughness = 0.3
 	weapon_root.add_child(mesh_instance)
 
+func _add_weapon_cylinder(pos, radius, height, color, rotation_deg = Vector3(90, 0, 0)):
+	var mesh_instance = MeshInstance3D.new()
+	var mesh = CylinderMesh.new()
+	mesh.top_radius = radius
+	mesh.bottom_radius = radius
+	mesh.height = height
+	mesh.radial_segments = 12
+	mesh_instance.mesh = mesh
+	mesh_instance.position = pos
+	mesh_instance.rotation_degrees = rotation_deg
+	var mat = StandardMaterial3D.new()
+	mat.albedo_color = color
+	mat.metallic = 0.52
+	mat.roughness = 0.24
+	mesh_instance.material_override = mat
+	weapon_root.add_child(mesh_instance)
+
 func _physics_process(delta):
 	if not alive or not is_instance_valid(game) or not game.match_active:
+		return
+	if training_dummy:
+		velocity = Vector3.ZERO
+		idle_turn += delta
+		body_root.rotation_degrees.y = sin(idle_turn * 0.7 + role_index) * 4.0
+		_animate_body(delta, false)
 		return
 	if not game.combat_enabled:
 		velocity = Vector3.ZERO
 		_animate_body(delta, false)
 		return
 	var now = Time.get_ticks_msec() * 0.001
+	var blinded = is_flashed()
 	if reloading and now >= reload_finish_time:
 		_finish_reload()
 	if not is_instance_valid(target) or not target.alive or now >= retarget_ready:
@@ -235,11 +286,14 @@ func _physics_process(delta):
 		var to_target = target.global_position - global_position
 		distance = to_target.length()
 		flat = Vector3(to_target.x, 0.0, to_target.z)
-		can_engage = distance <= float(stats.range) * 1.08 and _has_line_of_sight(target)
+		can_engage = not blinded and distance <= float(stats.range) * 1.08 and _has_line_of_sight(target)
 		if can_engage and flat.length() > 0.01:
 			look_at(global_position + flat, Vector3.UP)
 
-	if can_engage:
+	if blinded:
+		var blind_direction = Vector3(sin(now * 1.7 + role_index), 0.0, cos(now * 1.4 + role_index))
+		desired = blind_direction.normalized() * 0.45
+	elif can_engage:
 		var ideal_distance = 12.0
 		if weapon_id == "shotgun":
 			ideal_distance = 4.2
@@ -254,20 +308,30 @@ func _physics_process(delta):
 		elif distance < max(2.2, ideal_distance - 2.0):
 			desired -= flat.normalized() * 0.62
 		var side = flat.normalized().cross(Vector3.UP) * strafe_sign
-		desired += side * (0.34 if weapon_id == "sniper" else 0.48)
+		desired += side * (0.28 if weapon_id == "sniper" else 0.4)
+		if game.mode_id == "saloon":
+			var objective_pull = objective - global_position
+			objective_pull.y = 0.0
+			if objective_pull.length() > 0.8:
+				var priority = 0.75 if game.zone_owner != team else 0.28
+				desired += objective_pull.normalized() * priority
 	else:
 		var to_objective = objective - global_position
 		var flat_objective = Vector3(to_objective.x, 0.0, to_objective.z)
-		if flat_objective.length() > 0.8:
+		if flat_objective.length() > 0.65:
 			desired = flat_objective.normalized()
 			look_at(global_position + flat_objective, Vector3.UP)
+		elif game.mode_id == "saloon":
+			# Keep moving around the objective instead of becoming a motionless pile.
+			var orbit = Vector3(cos(now * 0.7 + role_index), 0.0, sin(now * 0.7 + role_index))
+			desired = orbit * 0.32
 
 	desired = _with_team_separation(desired)
 	if desired.length() > 1.0:
 		desired = desired.normalized()
 	var target_velocity = desired * speed
-	velocity.x = move_toward(velocity.x, target_velocity.x, delta * 12.0)
-	velocity.z = move_toward(velocity.z, target_velocity.z, delta * 12.0)
+	velocity.x = move_toward(velocity.x, target_velocity.x, delta * 8.0)
+	velocity.z = move_toward(velocity.z, target_velocity.z, delta * 8.0)
 	if not is_on_floor():
 		velocity.y -= 24.0 * delta
 	else:
@@ -277,7 +341,7 @@ func _physics_process(delta):
 	_animate_body(delta, moving)
 	_update_footsteps(delta, moving)
 
-	if can_engage and not reloading and now >= fire_ready:
+	if can_engage and not blinded and not reloading and now >= fire_ready:
 		if bot_mag <= 0:
 			_start_reload(stats)
 		else:
@@ -319,7 +383,7 @@ func _update_footsteps(delta, moving):
 		footstep_index += 1
 		footstep_audio.pitch_scale = randf_range(0.92, 1.08)
 		footstep_audio.play()
-		footstep_timer = 0.55
+		footstep_timer = 0.68
 
 func _has_line_of_sight(enemy):
 	var origin = global_position + Vector3.UP * 1.45
@@ -401,6 +465,13 @@ func shoot(enemy):
 		game.spawn_tracer(start, finish, stats.color, did_hit)
 	if bot_mag <= 0 and bot_reserve > 0:
 		_start_reload(stats)
+
+func apply_flash(duration):
+	super.apply_flash(duration)
+	target = null
+	fire_ready = max(fire_ready, Time.get_ticks_msec() * 0.001 + float(duration))
+	if is_instance_valid(weapon_label):
+		weapon_label.text = "ОСЛЕПЛЁН"
 
 func on_respawned():
 	target = null

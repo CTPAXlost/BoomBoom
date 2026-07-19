@@ -66,6 +66,18 @@ jobs:
             exit 1
           fi
 
+      - name: Run training ground smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -o pipefail
+          timeout 35s "$GODOT_SMOKE_BIN" --headless --path . -- --smoke-training 2>&1 | tee training-smoke-test.log
+          grep -q "BOOM_ARENA_TRAINING_SMOKE_TEST_OK" training-smoke-test.log
+          if grep -E "SCRIPT ERROR|Parse Error|Failed to load script" training-smoke-test.log; then
+            echo "ERROR: Godot reported script errors during the training smoke test."
+            exit 1
+          fi
+
       - name: Upload Godot logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
@@ -74,6 +86,7 @@ jobs:
           path: |
             godot-import.log
             smoke-test.log
+            training-smoke-test.log
           if-no-files-found: warn
           retention-days: 14
 
@@ -159,6 +172,9 @@ jobs:
           if [ -f smoke-test.log ]; then
             cp smoke-test.log artifacts/smoke-test.log
           fi
+          if [ -f training-smoke-test.log ]; then
+            cp training-smoke-test.log artifacts/training-smoke-test.log
+          fi
           test -s artifacts/BoomArena-debug.apk
           sha256sum artifacts/BoomArena-debug.apk | tee artifacts/BoomArena-debug.apk.sha256
           ls -lh artifacts/BoomArena-debug.apk artifacts/BoomArena-debug.apk.sha256
@@ -173,5 +189,6 @@ jobs:
             artifacts/apk-badging.txt
             artifacts/godot-import.log
             artifacts/smoke-test.log
+            artifacts/training-smoke-test.log
           if-no-files-found: error
           retention-days: 14

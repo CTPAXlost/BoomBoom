@@ -23,6 +23,10 @@ func _draw():
 			_draw_medkit()
 		"grenade":
 			_draw_grenade()
+		"flash":
+			_draw_flash_grenade()
+		"repair":
+			_draw_repair_kit()
 		"armor":
 			_draw_armor()
 		"helmet":
@@ -112,3 +116,23 @@ func _draw_helmet():
 	draw_rect(Rect2(Vector2(c.x - 36.0, c.y - 4.0), Vector2(72.0, 13.0)), Color("3c4a54"), true)
 	draw_rect(Rect2(Vector2(c.x + 17.0, c.y + 4.0), Vector2(12.0, 20.0)), Color("2c353d"), true)
 	draw_line(Vector2(c.x - 12.0, c.y + 8.0), Vector2(c.x + 9.0, c.y + 21.0), Color("d8e6f0"), 3.0)
+
+func _draw_flash_grenade():
+	var c = Vector2(size.x * 0.5, size.y * 0.54)
+	draw_circle(c, size.y * 0.25, Color("dce8ef"))
+	draw_circle(c, size.y * 0.25, Color("ffffff"), false, 3.0)
+	draw_rect(Rect2(Vector2(c.x - 8.0, c.y - 30.0), Vector2(16.0, 12.0)), Color("687785"), true)
+	for angle in range(0, 360, 45):
+		var direction = Vector2.from_angle(deg_to_rad(float(angle)))
+		draw_line(c + direction * 22.0, c + direction * 34.0, Color("ffef88"), 3.0)
+	draw_circle(c, 7.0, Color("ffef88"))
+
+func _draw_repair_kit():
+	var r = Rect2(Vector2(size.x * 0.22, size.y * 0.22), Vector2(size.x * 0.56, size.y * 0.58))
+	draw_rect(r, Color("287f9f"), true)
+	draw_rect(r, Color("77d8ff"), false, 3.0)
+	draw_rect(Rect2(Vector2(size.x * 0.39, size.y * 0.12), Vector2(size.x * 0.22, size.y * 0.13)), Color("23445d"), true)
+	var c = Vector2(size.x * 0.5, size.y * 0.52)
+	draw_circle(c, 13.0, Color("d8e6f0"), false, 5.0)
+	draw_line(c + Vector2(-18, 18), c + Vector2(18, -18), Color("d8e6f0"), 5.0)
+	draw_circle(c + Vector2(14, -14), 5.0, Color("ffca3a"))

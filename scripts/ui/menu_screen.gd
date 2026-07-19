@@ -1,10 +1,15 @@
 extends Control
 
-signal start_match
+signal start_match(session_type)
 
 const StoreIconScript = preload("res://scripts/ui/store_item_icon.gd")
+const ControlLayoutEditorScript = preload("res://scripts/ui/control_layout_editor.gd")
 
 var coins_label
+var main_panel
+var training_panel
+var training_weapon_select
+var tab_buttons = {}
 var profile_label
 var nickname_input
 var nickname_status
@@ -20,6 +25,8 @@ var helmet_button
 var helmet_info
 var medkit_button
 var grenade_button
+var flash_button
+var repair_button
 var consumable_info
 var sensitivity_label
 var sensitivity_slider
@@ -40,11 +47,13 @@ func _ready():
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_build_background()
 	_build_header()
+	_build_navigation()
 	_build_main_panel()
+	_build_training_panel()
 	_build_shop()
 	_build_settings()
 	_build_admin()
-	_show_shop()
+	_show_battle()
 	refresh()
 
 func _build_background():
@@ -95,7 +104,7 @@ func _build_header():
 	var title = make_label("BOOM ARENA", 42, Color("23e6ff"))
 	title.position = Vector2(48, 28)
 	add_child(title)
-	var subtitle = make_label("МОБИЛЬНЫЙ FPS • ПРОТОТИП 0.8.2", 18, Color("9db4c7"))
+	var subtitle = make_label("ТАКТИЧЕСКИЙ МУЛЬТЯШНЫЙ FPS • ПРОТОТИП 0.9", 18, Color("9db4c7"))
 	subtitle.position = Vector2(51, 83)
 	add_child(subtitle)
 	coins_label = make_label("", 28, Color("ffca3a"))
@@ -109,12 +118,51 @@ func _build_header():
 	profile_label.size = Vector2(530, 34)
 	add_child(profile_label)
 
+func _build_navigation():
+	var bar = HBoxContainer.new()
+	bar.position = Vector2(48, 112)
+	bar.size = Vector2(1180, 48)
+	bar.add_theme_constant_override("separation", 10)
+	add_child(bar)
+	var entries = [
+		["battle", "БОЙ", Color("23e6ff")],
+		["training", "ПОЛИГОН", Color("8cff98")],
+		["shop", "МАГАЗИН", Color("ffca3a")],
+		["settings", "НАСТРОЙКИ", Color("b48cff")],
+		["admin", "АДМИН", Color("ef476f")]
+	]
+	for entry in entries:
+		var button = Button.new()
+		button.text = entry[1]
+		button.custom_minimum_size = Vector2(224, 46)
+		style_button(button, entry[2])
+		button.pressed.connect(_switch_tab.bind(entry[0]))
+		bar.add_child(button)
+		tab_buttons[entry[0]] = button
+
+func _switch_tab(id):
+	if id == "battle":
+		_show_battle()
+	elif id == "training":
+		_show_training()
+	elif id == "shop":
+		_show_shop()
+	elif id == "settings":
+		_show_settings()
+	else:
+		_show_admin()
+
+func _set_active_tab(id):
+	for key in tab_buttons:
+		tab_buttons[key].disabled = str(key) == str(id)
+
 func _build_main_panel():
-	var panel = PanelContainer.new()
-	panel.position = Vector2(48, 135)
-	panel.size = Vector2(480, 555)
-	panel.add_theme_stylebox_override("panel", panel_style())
-	add_child(panel)
+	main_panel = PanelContainer.new()
+	main_panel.position = Vector2(48, 172)
+	main_panel.size = Vector2(1180, 518)
+	main_panel.add_theme_stylebox_override("panel", panel_style())
+	add_child(main_panel)
+	var panel = main_panel
 	var box = VBoxContainer.new()
 	box.add_theme_constant_override("separation", 7)
 	box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 20)
@@ -162,30 +210,12 @@ func _build_main_panel():
 	start_button.text = "НАЧАТЬ БОЙ"
 	start_button.custom_minimum_size = Vector2(420, 54)
 	style_button(start_button, Color("23e6ff"))
-	start_button.pressed.connect(func(): start_match.emit())
+	start_button.pressed.connect(func(): start_match.emit("match"))
 	box.add_child(start_button)
 	start_status = make_label("", 14, Color("8cff98"))
 	start_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	start_status.custom_minimum_size = Vector2(420, 24)
 	box.add_child(start_status)
-	var shop = Button.new()
-	shop.text = "МАГАЗИН И СНАРЯЖЕНИЕ"
-	shop.custom_minimum_size = Vector2(420, 40)
-	style_button(shop, Color("ffca3a"))
-	shop.pressed.connect(_show_shop)
-	box.add_child(shop)
-	var settings = Button.new()
-	settings.text = "⚙  НАСТРОЙКИ"
-	settings.custom_minimum_size = Vector2(420, 40)
-	style_button(settings, Color("b48cff"))
-	settings.pressed.connect(_show_settings)
-	box.add_child(settings)
-	var admin = Button.new()
-	admin.text = "АДМИН • ТЕСТОВЫЕ МОНЕТЫ"
-	admin.custom_minimum_size = Vector2(420, 40)
-	style_button(admin, Color("ef476f"))
-	admin.pressed.connect(_show_admin)
-	box.add_child(admin)
 	loadout_status = make_label("", 14, Color("d8e6f0"))
 	loadout_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	loadout_status.custom_minimum_size = Vector2(420, 58)
@@ -207,10 +237,49 @@ func show_start_error(message):
 		start_status.text = str(message)
 		start_status.add_theme_color_override("font_color", Color("ef476f"))
 
+func _build_training_panel():
+	training_panel = PanelContainer.new()
+	training_panel.position = Vector2(48, 172)
+	training_panel.size = Vector2(1180, 518)
+	training_panel.add_theme_stylebox_override("panel", panel_style(Color("102a24")))
+	add_child(training_panel)
+	var box = VBoxContainer.new()
+	box.add_theme_constant_override("separation", 16)
+	box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 34)
+	training_panel.add_child(box)
+	box.add_child(make_label("ПОЛИГОН", 34, Color("8cff98")))
+	var description = make_label("Тренировочная площадка без ответного огня. Манекены стоят на разных дистанциях и восстанавливаются после устранения. Аптечки, обычные и светошумовые гранаты, а также ремкомплекты в этом режиме не списываются.", 20, Color("d8e6f0"))
+	description.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	description.custom_minimum_size = Vector2(1080, 95)
+	box.add_child(description)
+	var tips = make_label("• проверка отдачи и дальности оружия\n• тренировка попаданий в голову\n• отработка гранат за укрытиями\n• свободный выход через кнопку Назад", 20, Color("9db4c7"))
+	tips.custom_minimum_size = Vector2(1080, 135)
+	box.add_child(tips)
+	var weapon_row = HBoxContainer.new()
+	weapon_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	weapon_row.add_theme_constant_override("separation", 14)
+	box.add_child(weapon_row)
+	weapon_row.add_child(make_label("ОРУЖИЕ ДЛЯ ТЕСТА:", 20, Color("ffca3a")))
+	training_weapon_select = OptionButton.new()
+	training_weapon_select.custom_minimum_size = Vector2(420, 48)
+	training_weapon_select.add_theme_font_size_override("font_size", 19)
+	for id in SaveData.main_weapon_ids():
+		training_weapon_select.add_item(SaveData.weapon_catalog()[id].name)
+		training_weapon_select.set_item_metadata(training_weapon_select.item_count - 1, id)
+	training_weapon_select.item_selected.connect(_select_training_weapon)
+	weapon_row.add_child(training_weapon_select)
+	var start_training = Button.new()
+	start_training.text = "ВОЙТИ НА ПОЛИГОН"
+	start_training.custom_minimum_size = Vector2(520, 64)
+	start_training.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	style_button(start_training, Color("8cff98"))
+	start_training.pressed.connect(func(): start_match.emit("training"))
+	box.add_child(start_training)
+
 func _build_shop():
 	shop_panel = PanelContainer.new()
-	shop_panel.position = Vector2(555, 135)
-	shop_panel.size = Vector2(675, 525)
+	shop_panel.position = Vector2(48, 172)
+	shop_panel.size = Vector2(1180, 518)
 	shop_panel.add_theme_stylebox_override("panel", panel_style(Color("0b1825")))
 	add_child(shop_panel)
 	var root = VBoxContainer.new()
@@ -223,7 +292,7 @@ func _build_shop():
 	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	root.add_child(scroll)
 	var content = VBoxContainer.new()
-	content.custom_minimum_size = Vector2(620, 0)
+	content.custom_minimum_size = Vector2(1120, 0)
 	content.add_theme_constant_override("separation", 9)
 	scroll.add_child(content)
 	content.add_child(make_label("Сначала выбери один из четырёх оружейных слотов:", 17, Color("9db4c7")))
@@ -364,7 +433,7 @@ func _create_helmet_card():
 
 func _create_consumables_card():
 	var card = PanelContainer.new()
-	card.custom_minimum_size = Vector2(610, 230)
+	card.custom_minimum_size = Vector2(1100, 390)
 	card.add_theme_stylebox_override("panel", panel_style(Color("102a24")))
 	var box = VBoxContainer.new()
 	box.add_theme_constant_override("separation", 8)
@@ -398,12 +467,37 @@ func _create_consumables_card():
 		refresh()
 	)
 	grenade_box.add_child(grenade_button)
+	var advanced_row = HBoxContainer.new()
+	advanced_row.add_theme_constant_override("separation", 12)
+	box.add_child(advanced_row)
+	var flash_box = VBoxContainer.new()
+	flash_box.custom_minimum_size = Vector2(290, 150)
+	advanced_row.add_child(flash_box)
+	flash_box.add_child(_create_icon("flash", Color("f7fbff")))
+	flash_button = Button.new()
+	style_button(flash_button, Color("f7fbff"))
+	flash_button.pressed.connect(func():
+		SaveData.buy_consumable("flash")
+		refresh()
+	)
+	flash_box.add_child(flash_button)
+	var repair_box = VBoxContainer.new()
+	repair_box.custom_minimum_size = Vector2(290, 150)
+	advanced_row.add_child(repair_box)
+	repair_box.add_child(_create_icon("repair", Color("77d8ff")))
+	repair_button = Button.new()
+	style_button(repair_button, Color("77d8ff"))
+	repair_button.pressed.connect(func():
+		SaveData.buy_consumable("repair")
+		refresh()
+	)
+	repair_box.add_child(repair_button)
 	return card
 
 func _build_settings():
 	settings_panel = PanelContainer.new()
-	settings_panel.position = Vector2(555, 135)
-	settings_panel.size = Vector2(675, 525)
+	settings_panel.position = Vector2(48, 172)
+	settings_panel.size = Vector2(1180, 518)
 	settings_panel.add_theme_stylebox_override("panel", panel_style(Color("151128")))
 	add_child(settings_panel)
 	var box = VBoxContainer.new()
@@ -465,6 +559,12 @@ func _build_settings():
 	fps_counter_toggle.add_theme_font_size_override("font_size", 19)
 	fps_counter_toggle.toggled.connect(_on_fps_counter_toggled)
 	box.add_child(fps_counter_toggle)
+	var layout_button = Button.new()
+	layout_button.text = "РАСПОЛОЖЕНИЕ КНОПОК УПРАВЛЕНИЯ"
+	layout_button.custom_minimum_size = Vector2(600, 50)
+	style_button(layout_button, Color("23e6ff"))
+	layout_button.pressed.connect(_open_control_layout)
+	box.add_child(layout_button)
 	var back = Button.new()
 	back.text = "ВЕРНУТЬСЯ В МАГАЗИН"
 	back.custom_minimum_size = Vector2(600, 50)
@@ -474,8 +574,8 @@ func _build_settings():
 
 func _build_admin():
 	admin_panel = PanelContainer.new()
-	admin_panel.position = Vector2(555, 135)
-	admin_panel.size = Vector2(675, 525)
+	admin_panel.position = Vector2(48, 172)
+	admin_panel.size = Vector2(1180, 518)
 	admin_panel.add_theme_stylebox_override("panel", panel_style(Color("1d111a")))
 	add_child(admin_panel)
 	var box = VBoxContainer.new()
@@ -518,24 +618,55 @@ func _build_admin():
 	back.pressed.connect(_show_shop)
 	box.add_child(back)
 
-func _show_shop():
-	shop_panel.visible = true
+func _hide_all_panels():
+	main_panel.visible = false
+	training_panel.visible = false
+	shop_panel.visible = false
 	settings_panel.visible = false
 	admin_panel.visible = false
+
+func _show_battle():
+	_hide_all_panels()
+	main_panel.visible = true
+	_set_active_tab("battle")
+	refresh()
+
+func _show_training():
+	_hide_all_panels()
+	training_panel.visible = true
+	_set_active_tab("training")
+	refresh()
+
+func _show_shop():
+	_hide_all_panels()
+	shop_panel.visible = true
+	_set_active_tab("shop")
 	refresh()
 
 func _show_settings():
-	shop_panel.visible = false
+	_hide_all_panels()
 	settings_panel.visible = true
-	admin_panel.visible = false
+	_set_active_tab("settings")
 	refresh()
 
 func _show_admin():
-	shop_panel.visible = false
-	settings_panel.visible = false
+	_hide_all_panels()
 	admin_panel.visible = true
+	_set_active_tab("admin")
 	admin_coins.value = SaveData.coins
 	admin_status.text = ""
+	refresh()
+
+func _open_control_layout():
+	var editor = ControlLayoutEditorScript.new()
+	add_child(editor)
+	move_child(editor, get_child_count() - 1)
+	await editor.closed
+	refresh()
+
+func _select_training_weapon(index):
+	var id = str(training_weapon_select.get_item_metadata(index))
+	SaveData.set_training_weapon(id)
 	refresh()
 
 func _select_map(id):
@@ -571,6 +702,11 @@ func refresh():
 	map_status.text = "%s • %s\n%s" % [map_data.name, map_data.mode, map_data.description]
 	for id in map_buttons:
 		map_buttons[id].set_pressed_no_signal(id == SaveData.selected_map)
+	if is_instance_valid(training_weapon_select):
+		for index in range(training_weapon_select.item_count):
+			if str(training_weapon_select.get_item_metadata(index)) == SaveData.training_weapon:
+				training_weapon_select.select(index)
+				break
 
 	var equipped_names = []
 	for i in range(slot_buttons.size()):
@@ -615,11 +751,23 @@ func refresh():
 			upgrade.disabled = SaveData.coins < SaveData.upgrade_cost(id)
 	_refresh_armor()
 	_refresh_helmet()
-	consumable_info.text = "Аптечки: %d — +10 HP, максимум 10 за жизнь. Гранаты: %d — 100 урона, максимум 2 за жизнь." % [SaveData.medkits, SaveData.grenades]
+	consumable_info.text = "Аптечки %d • гранаты %d • светошумовые %d • ремкомплекты %d. Светошум и ремкомплект открываются на 3 уровне." % [SaveData.medkits, SaveData.grenades, SaveData.flash_grenades, SaveData.repair_kits]
 	medkit_button.text = "КУПИТЬ АПТЕЧКУ\n%d МОНЕТ" % SaveData.MEDKIT_PRICE
 	grenade_button.text = "КУПИТЬ ГРАНАТУ\n%d МОНЕТ" % SaveData.GRENADE_PRICE
 	medkit_button.disabled = SaveData.coins < SaveData.MEDKIT_PRICE
 	grenade_button.disabled = SaveData.coins < SaveData.GRENADE_PRICE
+	if SaveData.player_level < SaveData.FLASH_GRENADE_UNLOCK_LEVEL:
+		flash_button.text = "СВЕТОШУМОВАЯ\nНУЖЕН УРОВЕНЬ 3"
+		flash_button.disabled = true
+	else:
+		flash_button.text = "КУПИТЬ СВЕТОШУМОВУЮ\n%d МОНЕТ" % SaveData.FLASH_GRENADE_PRICE
+		flash_button.disabled = SaveData.coins < SaveData.FLASH_GRENADE_PRICE
+	if SaveData.player_level < SaveData.REPAIR_KIT_UNLOCK_LEVEL:
+		repair_button.text = "РЕМКОМПЛЕКТ\nНУЖЕН УРОВЕНЬ 3"
+		repair_button.disabled = true
+	else:
+		repair_button.text = "КУПИТЬ РЕМКОМПЛЕКТ\n%d МОНЕТ" % SaveData.REPAIR_KIT_PRICE
+		repair_button.disabled = SaveData.coins < SaveData.REPAIR_KIT_PRICE
 	sensitivity_label.text = "ЧУВСТВИТЕЛЬНОСТЬ СЕНСОРА: %.2f" % SaveData.look_sensitivity
 	sensitivity_slider.set_value_no_signal(SaveData.look_sensitivity)
 	for fps in fps_buttons:

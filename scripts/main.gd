@@ -7,15 +7,18 @@ var current_screen
 var pending_screen
 var startup_attempt = 0
 var smoke_test_mode = false
+var smoke_session_type = "match"
 
 func _ready():
 	SaveData.apply_runtime_settings()
 	DisplayServer.screen_set_orientation(DisplayServer.SCREEN_SENSOR_LANDSCAPE)
 	_ensure_input_actions()
-	smoke_test_mode = OS.get_cmdline_user_args().has("--smoke-test")
+	var command_args = OS.get_cmdline_user_args()
+	smoke_test_mode = command_args.has("--smoke-test") or command_args.has("--smoke-training")
+	smoke_session_type = "training" if command_args.has("--smoke-training") else "match"
 	show_menu()
 	if smoke_test_mode:
-		call_deferred("start_match")
+		call_deferred("start_match", smoke_session_type)
 
 func _ensure_input_actions():
 	var keys = {
@@ -27,6 +30,8 @@ func _ensure_input_actions():
 		"knife": KEY_Q,
 		"medkit": KEY_H,
 		"grenade": KEY_G,
+		"flash_grenade": KEY_C,
+		"repair_kit": KEY_V,
 		"toggle_auto": KEY_F,
 		"slot_1": KEY_1,
 		"slot_2": KEY_2,
@@ -79,7 +84,7 @@ func show_menu():
 	add_child(current_screen)
 	current_screen.start_match.connect(start_match)
 
-func start_match():
+func start_match(session_type = "match"):
 	if is_instance_valid(pending_screen):
 		return
 	var arena_script = ResourceLoader.load(ARENA_SCRIPT_PATH)
@@ -93,6 +98,8 @@ func start_match():
 	if arena == null:
 		_show_start_error("Не удалось создать боевую сцену.")
 		return
+	if arena.has_method("configure_session"):
+		arena.configure_session(str(session_type))
 	pending_screen = arena
 	if not pending_screen.has_signal("arena_ready"):
 		_show_start_error("В боевой сцене отсутствует сигнал готовности.")
@@ -126,7 +133,10 @@ func _on_arena_ready():
 	if is_instance_valid(old_screen):
 		old_screen.queue_free()
 	if smoke_test_mode:
-		print("BOOM_ARENA_SMOKE_TEST_OK")
+		if smoke_session_type == "training":
+			print("BOOM_ARENA_TRAINING_SMOKE_TEST_OK")
+		else:
+			print("BOOM_ARENA_SMOKE_TEST_OK")
 		await get_tree().process_frame
 		get_tree().quit(0)
 

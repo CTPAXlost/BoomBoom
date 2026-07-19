@@ -11,9 +11,9 @@ var muzzle_light
 var game_hud
 var yaw = 0.0
 var pitch = 0.0
-var speed = 5.6
-var acceleration = 18.0
-var deceleration = 23.0
+var speed = 4.15
+var acceleration = 10.5
+var deceleration = 13.5
 var mouse_sensitivity = 0.0024
 var mobile_sensitivity = 0.0036
 var look_accumulator = Vector2.ZERO
@@ -41,7 +41,10 @@ var aiming = false
 var range_message_ready = 0.0
 var medkits_used_life = 0
 var grenades_used_life = 0
+var flashes_used_life = 0
+var repairs_used_life = 0
 var grenade_ready_time = 0.0
+var flash_ready_time = 0.0
 var soft_aim_target
 var shot_audio
 var reload_audio
@@ -138,10 +141,22 @@ func _reset_ammo():
 	using_pistol = false
 	medkits_used_life = 0
 	grenades_used_life = 0
+	flashes_used_life = 0
+	repairs_used_life = 0
 	reloading = false
 	reload_token += 1
 	reload_animation_time = 0.0
 	select_first_available_slot()
+
+func set_training_weapon(id):
+	var requested = str(id)
+	if not SaveData.main_weapon_ids().has(requested):
+		requested = "rifle"
+	current_weapon_id = requested
+	using_pistol = false
+	reloading = false
+	reload_token += 1
+	_update_weapon_model()
 
 func select_first_available_slot():
 	for i in range(4):
@@ -197,7 +212,7 @@ func _handle_move(delta):
 		velocity.x = move_toward(velocity.x, direction.x * speed, acceleration * delta)
 		velocity.z = move_toward(velocity.z, direction.z * speed, acceleration * delta)
 		if is_on_floor():
-			bob_time += delta * 10.5
+			bob_time += delta * 7.4
 	else:
 		velocity.x = move_toward(velocity.x, 0.0, deceleration * delta)
 		velocity.z = move_toward(velocity.z, 0.0, deceleration * delta)
@@ -223,12 +238,12 @@ func _update_footsteps(delta, moving):
 		footstep_index += 1
 		footstep_audio.pitch_scale = randf_range(0.95, 1.05)
 		footstep_audio.play()
-		footstep_timer = 0.48
+		footstep_timer = 0.62
 
 func _handle_look(delta):
 	if game_hud:
 		look_accumulator += game_hud.consume_look_delta()
-	var smoothing = 1.0 - exp(-24.0 * delta)
+	var smoothing = 1.0 - exp(-15.0 * delta)
 	var applied = look_accumulator * smoothing
 	look_accumulator -= applied
 	if applied.length_squared() > 0.0001:
@@ -302,6 +317,10 @@ func _handle_actions():
 		use_medkit()
 	if Input.is_action_just_pressed("grenade") or (game_hud and game_hud.consume_grenade()):
 		throw_grenade()
+	if Input.is_action_just_pressed("flash_grenade") or (game_hud and game_hud.consume_flash()):
+		throw_flash_grenade()
+	if Input.is_action_just_pressed("repair_kit") or (game_hud and game_hud.consume_repair()):
+		use_repair_kit()
 	if Input.is_action_just_pressed("toggle_auto") or (game_hud and game_hud.consume_auto_toggle()):
 		SaveData.auto_fire = not SaveData.auto_fire
 		SaveData.save_game()
@@ -564,7 +583,7 @@ func use_medkit():
 		if game_hud:
 			game_hud.show_center_message("ЗДОРОВЬЕ ПОЛНОЕ", 0.65)
 		return
-	if not SaveData.consume_medkit():
+	if not game.is_training_session() and not SaveData.consume_medkit():
 		if game_hud:
 			game_hud.show_center_message("АПТЕЧКИ ЗАКОНЧИЛИСЬ", 0.9)
 		return
@@ -582,7 +601,7 @@ func throw_grenade():
 		if game_hud:
 			game_hud.show_center_message("ЛИМИТ: 2 ГРАНАТЫ ЗА ЖИЗНЬ", 0.9)
 		return
-	if not SaveData.consume_grenade():
+	if not game.is_training_session() and not SaveData.consume_grenade():
 		if game_hud:
 			game_hud.show_center_message("ГРАНАТЫ ЗАКОНЧИЛИСЬ", 0.9)
 		return
@@ -594,12 +613,71 @@ func throw_grenade():
 	if game_hud:
 		game_hud.show_center_message("ГРАНАТА! • ОСТАЛОСЬ %d" % SaveData.grenades, 0.7)
 
+func throw_flash_grenade():
+	var now = Time.get_ticks_msec() * 0.001
+	if not alive or now < flash_ready_time or not is_instance_valid(game) or not game.combat_enabled:
+		return
+	if SaveData.player_level < SaveData.FLASH_GRENADE_UNLOCK_LEVEL:
+		if game_hud:
+			game_hud.show_center_message("СВЕТОШУМОВАЯ ГРАНАТА ОТКРОЕТСЯ НА 3 УРОВНЕ", 1.0)
+		return
+	if flashes_used_life >= SaveData.FLASH_GRENADE_PER_LIFE:
+		if game_hud:
+			game_hud.show_center_message("ЛИМИТ: 2 СВЕТОШУМОВЫЕ ЗА ЖИЗНЬ", 0.9)
+		return
+	if not game.is_training_session() and not SaveData.consume_flash_grenade():
+		if game_hud:
+			game_hud.show_center_message("СВЕТОШУМОВЫЕ ГРАНАТЫ ЗАКОНЧИЛИСЬ", 0.9)
+		return
+	flashes_used_life += 1
+	flash_ready_time = now + 1.25
+	var origin = camera.global_position + (-camera.global_transform.basis.z) * 0.65 + Vector3.DOWN * 0.18
+	var direction = -camera.global_transform.basis.z
+	game.throw_flash_grenade(self, origin, direction)
+	if game_hud:
+		game_hud.show_center_message("СВЕТОШУМОВАЯ!", 0.65)
+
+func use_repair_kit():
+	if not alive or not is_instance_valid(game) or not game.combat_enabled:
+		return
+	if SaveData.player_level < SaveData.REPAIR_KIT_UNLOCK_LEVEL:
+		if game_hud:
+			game_hud.show_center_message("РЕМКОМПЛЕКТ ОТКРОЕТСЯ НА 3 УРОВНЕ", 0.9)
+		return
+	if repairs_used_life >= SaveData.REPAIR_KIT_PER_LIFE:
+		if game_hud:
+			game_hud.show_center_message("РЕМКОМПЛЕКТ УЖЕ ИСПОЛЬЗОВАН В ЭТОЙ ЖИЗНИ", 0.9)
+		return
+	if max_armor <= 0.0 or armor >= max_armor:
+		if game_hud:
+			game_hud.show_center_message("БРОНЯ НЕ ТРЕБУЕТ РЕМОНТА", 0.8)
+		return
+	if not game.is_training_session() and not SaveData.consume_repair_kit():
+		if game_hud:
+			game_hud.show_center_message("РЕМКОМПЛЕКТЫ ЗАКОНЧИЛИСЬ", 0.9)
+		return
+	repairs_used_life += 1
+	armor = min(max_armor, armor + SaveData.REPAIR_KIT_RESTORE)
+	on_health_changed()
+	if game_hud:
+		game_hud.show_center_message("БРОНЯ +%d" % SaveData.REPAIR_KIT_RESTORE, 0.8)
+
+func apply_flash(duration):
+	super.apply_flash(duration)
+	if game_hud:
+		game_hud.apply_flash(duration)
+
 func consumable_text():
+	var training = is_instance_valid(game) and game.is_training_session()
 	return {
-		"medkits": SaveData.medkits,
+		"medkits": 999 if training else SaveData.medkits,
 		"medkits_life": SaveData.MEDKIT_PER_LIFE - medkits_used_life,
-		"grenades": SaveData.grenades,
-		"grenades_life": SaveData.GRENADE_PER_LIFE - grenades_used_life
+		"grenades": 999 if training else SaveData.grenades,
+		"grenades_life": SaveData.GRENADE_PER_LIFE - grenades_used_life,
+		"flashes": 999 if training else SaveData.flash_grenades,
+		"flashes_life": SaveData.FLASH_GRENADE_PER_LIFE - flashes_used_life,
+		"repairs": 999 if training else SaveData.repair_kits,
+		"repairs_life": SaveData.REPAIR_KIT_PER_LIFE - repairs_used_life
 	}
 
 func select_slot(index):
@@ -692,12 +770,15 @@ func _update_weapon_model():
 
 	var stats = SaveData.get_weapon_stats(current_weapon_id)
 	var body_color = stats.get("color", Color.WHITE)
+	weapon_root.name = "WeaponModel"
+	weapon_root.set_meta("skin_ready", true)
+	weapon_root.set_meta("weapon_id", current_weapon_id)
 	weapon_root.position = Vector3(0.34, -0.31, -0.58)
 	weapon_root.rotation_degrees = Vector3(-3.0, 0.0, 0.0)
 
 	if current_weapon_id == "sniper":
 		_add_weapon_box(Vector3(0, 0, -0.1), Vector3(0.16, 0.15, 0.86), body_color)
-		_add_weapon_box(Vector3(0, 0.01, -0.76), Vector3(0.07, 0.07, 0.76), Color("20262d"))
+		_add_weapon_cylinder(Vector3(0, 0.01, -0.76), 0.04, 0.82, Color("20262d"), Vector3(90, 0, 0))
 		_add_weapon_cylinder(Vector3(0, 0.16, -0.25), 0.075, 0.5, Color("151a20"), Vector3(90, 0, 0))
 		_add_weapon_box(Vector3(0, -0.18, 0.04), Vector3(0.12, 0.34, 0.18), Color("4d3324"), Vector3(-12, 0, 0))
 		_add_weapon_box(Vector3(0, -0.02, 0.38), Vector3(0.19, 0.18, 0.34), Color("5d3b24"), Vector3(2, 0, 0))
@@ -705,13 +786,14 @@ func _update_weapon_model():
 		_create_muzzle(Vector3(0, 0.01, -1.17))
 	elif current_weapon_id == "shotgun":
 		_add_weapon_box(Vector3(0, 0, -0.12), Vector3(0.19, 0.17, 0.7), body_color)
-		_add_weapon_box(Vector3(0, 0.015, -0.59), Vector3(0.09, 0.09, 0.42), Color("2b3038"))
+		_add_weapon_cylinder(Vector3(-0.045, 0.015, -0.6), 0.035, 0.48, Color("2b3038"), Vector3(90, 0, 0))
+		_add_weapon_cylinder(Vector3(0.045, 0.015, -0.6), 0.035, 0.48, Color("2b3038"), Vector3(90, 0, 0))
 		_add_weapon_box(Vector3(0, -0.15, 0.0), Vector3(0.12, 0.28, 0.16), Color("20262d"), Vector3(-12, 0, 0))
 		_add_weapon_box(Vector3(0, -0.04, 0.34), Vector3(0.16, 0.15, 0.28), Color("5d3b24"))
 		_create_muzzle(Vector3(0, 0.015, -0.83))
 	elif current_weapon_id == "machinegun":
 		_add_weapon_box(Vector3(0, 0, -0.08), Vector3(0.24, 0.22, 0.78), body_color)
-		_add_weapon_box(Vector3(0, 0.02, -0.62), Vector3(0.1, 0.1, 0.55), Color("252b33"))
+		_add_weapon_cylinder(Vector3(0, 0.02, -0.65), 0.052, 0.62, Color("252b33"), Vector3(90, 0, 0))
 		_add_weapon_box(Vector3(0, -0.22, 0.02), Vector3(0.15, 0.38, 0.2), Color("20262d"), Vector3(-10, 0, 0))
 		_add_weapon_box(Vector3(0.0, -0.16, 0.29), Vector3(0.24, 0.32, 0.28), Color("333b45"), Vector3(8, 0, 0))
 		_add_weapon_box(Vector3(0, 0.14, -0.24), Vector3(0.1, 0.09, 0.32), Color("171b22"))
@@ -719,7 +801,7 @@ func _update_weapon_model():
 	elif current_weapon_id == "pistol":
 		_add_weapon_box(Vector3(0, 0, -0.1), Vector3(0.16, 0.18, 0.42), body_color)
 		_add_weapon_box(Vector3(0, -0.18, 0.02), Vector3(0.13, 0.32, 0.16), Color("20262d"), Vector3(-10, 0, 0))
-		_add_weapon_box(Vector3(0, 0.035, -0.38), Vector3(0.08, 0.07, 0.18), Color("2b3038"))
+		_add_weapon_cylinder(Vector3(0, 0.035, -0.4), 0.035, 0.22, Color("2b3038"), Vector3(90, 0, 0))
 		_create_muzzle(Vector3(0, 0.035, -0.5))
 	else:
 		var body_length = 0.62
@@ -738,7 +820,9 @@ func _update_weapon_model():
 			barrel_length = 0.4
 			mag_size = Vector3(0.16, 0.31, 0.25)
 		_add_weapon_box(Vector3(0, 0, -0.12), Vector3(0.19, 0.18, body_length), body_color)
-		_add_weapon_box(Vector3(0, 0.025, -0.55), Vector3(0.075, 0.075, barrel_length), Color("2b3038"))
+		_add_weapon_cylinder(Vector3(0, 0.025, -0.56), 0.04, barrel_length + 0.06, Color("2b3038"), Vector3(90, 0, 0))
+		_add_weapon_box(Vector3(0, 0.14, -0.18), Vector3(0.10, 0.07, 0.25), Color("111820"))
+		_add_weapon_box(Vector3(0, 0.18, -0.08), Vector3(0.055, 0.055, 0.08), Color("77d8ff"))
 		_add_weapon_box(Vector3(0, -0.2, -0.08), Vector3(0.13, 0.36, 0.17), Color("20262d"), Vector3(-12, 0, 0))
 		_add_weapon_box(Vector3(0, -0.13, 0.24), mag_size, Color("313a45"), Vector3(10, 0, 0))
 		_add_weapon_box(Vector3(0, 0.13, -0.18), Vector3(0.08, 0.08, 0.22), Color("151a20"))
@@ -821,8 +905,8 @@ func _update_weapon_visuals(delta):
 		reload_animation_time = max(0.0, reload_animation_time - delta)
 	if is_instance_valid(weapon_root):
 		var move_amount = Vector2(velocity.x, velocity.z).length() / speed if alive else 0.0
-		var sway_x = sin(bob_time * 0.5) * 0.012 * move_amount
-		var sway_y = abs(cos(bob_time)) * 0.012 * move_amount
+		var sway_x = sin(bob_time * 0.5) * 0.007 * move_amount
+		var sway_y = abs(cos(bob_time)) * 0.007 * move_amount
 		var base_position = Vector3(0.03, -0.2, -0.53) if aiming else Vector3(0.34, -0.31, -0.58)
 		var target_position = base_position + Vector3(sway_x, -sway_y - recoil * 0.055, recoil * 0.09)
 		var target_rotation = Vector3(-2.0, 0.0, 0.0)
@@ -854,6 +938,8 @@ func on_respawned():
 	headshot_damage_multiplier = 0.5 if SaveData.helmet_owned else 1.0
 	medkits_used_life = 0
 	grenades_used_life = 0
+	flashes_used_life = 0
+	repairs_used_life = 0
 	knife_animation_time = 0.0
 	if is_instance_valid(knife_root):
 		knife_root.visible = false

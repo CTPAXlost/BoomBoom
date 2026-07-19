@@ -24,6 +24,7 @@ var zone_seconds = 0.0
 var damage_contributors = {}
 var last_damage_info = {"method": "environment", "headshot": false}
 var headshot_damage_multiplier = 1.0
+var flashed_until = 0.0
 
 func setup(p_game, p_team, p_name, p_spawn):
 	game = p_game
@@ -102,6 +103,12 @@ func collect_assist_candidates(killer, window_seconds = 10.0):
 func clear_damage_contributors():
 	damage_contributors.clear()
 
+func apply_flash(duration):
+	flashed_until = max(flashed_until, Time.get_ticks_msec() * 0.001 + max(0.0, float(duration)))
+
+func is_flashed():
+	return Time.get_ticks_msec() * 0.001 < flashed_until
+
 func die(attacker):
 	if not alive:
 		return
@@ -120,6 +127,7 @@ func respawn_at(point):
 	last_armor_damage = 0.0
 	last_health_damage = 0.0
 	last_damage_info = {"method": "environment", "headshot": false}
+	flashed_until = 0.0
 	clear_damage_contributors()
 	life_streak = 0
 	alive = true

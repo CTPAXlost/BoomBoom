@@ -10,6 +10,7 @@ const HUDScript = preload("res://scripts/ui/mobile_hud.gd")
 const GRENADE_SOUND_PATH = "res://assets/audio/grenade.wav"
 
 var mode_id = "farm"
+var session_type = "match"
 var blue_score = 0
 var red_score = 0
 var match_elapsed = 0.0
@@ -35,10 +36,16 @@ var zone_material
 var zone_contested = false
 var grenade_audio
 
+func configure_session(value):
+	session_type = "training" if str(value) == "training" else "match"
+
+func is_training_session():
+	return session_type == "training"
+
 func _ready():
 	randomize()
-	mode_id = SaveData.selected_map
-	score_limit = 1000 if mode_id == "saloon" else 25
+	mode_id = "training" if is_training_session() else SaveData.selected_map
+	score_limit = 0 if mode_id == "training" else 1000 if mode_id == "saloon" else 25
 	print("Boom Arena: building map ", mode_id)
 	_apply_graphics_quality()
 	_build_environment()
@@ -63,7 +70,8 @@ func _apply_graphics_quality():
 func _start_countdown():
 	combat_enabled = false
 	hud.set_precombat_mode(true)
-	for number in [5, 4, 3, 2, 1]:
+	var countdown_numbers = [3, 2, 1] if is_training_session() else [5, 4, 3, 2, 1]
+	for number in countdown_numbers:
 		if not match_active:
 			return
 		hud.show_countdown("%d\nВЫБЕРИ СТАРТОВОЕ ОРУЖИЕ" % number)
@@ -78,7 +86,9 @@ func _start_countdown():
 	if match_active:
 		hud.hide_countdown()
 		if mode_id == "saloon":
-			hud.show_center_message("КОНТРОЛЬ ЗОНЫ • ЦЕЛЬ 1000 ОЧКОВ", 2.0)
+			hud.show_center_message("ОДНА ТОЧКА • ЦЕЛЬ 1000 ОЧКОВ", 2.0)
+		elif mode_id == "training":
+			hud.show_center_message("ПОЛИГОН • БОТЫ НЕ СТРЕЛЯЮТ • РАСХОДНИКИ БЕСКОНЕЧНЫ", 2.2)
 		else:
 			hud.show_center_message("ПЕРВЫЕ 25 УСТРАНЕНИЙ ПОБЕЖДАЮТ", 1.8)
 
@@ -96,17 +106,26 @@ func _process(delta):
 
 func _unhandled_input(event):
 	if event.is_action_pressed("ui_cancel") and match_active:
-		finish_match(true)
+		if is_training_session():
+			match_active = false
+			combat_enabled = false
+			match_finished.emit()
+		else:
+			finish_match(true)
 
 func _build_environment():
 	var environment = WorldEnvironment.new()
 	var env = Environment.new()
 	env.background_mode = Environment.BG_COLOR
-	env.background_color = Color("82c9f2") if mode_id == "farm" else Color("e7a75d")
+	env.background_color = Color("82c9f2") if mode_id == "farm" else Color("87b7d5") if mode_id == "training" else Color("e7a75d")
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color("e4f5ff") if mode_id == "farm" else Color("ffe1b5")
-	env.ambient_light_energy = 0.82
+	env.ambient_light_color = Color("e4f5ff") if mode_id != "saloon" else Color("ffe1b5")
+	env.ambient_light_energy = 0.9 if SaveData.graphics_quality == "high" else 0.82
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	env.tonemap_exposure = 1.08
+	env.fog_enabled = SaveData.graphics_quality == "high"
+	env.fog_light_color = Color("e8d4b0") if mode_id == "saloon" else Color("cfe9f7")
+	env.fog_density = 0.006
 	environment.environment = env
 	add_child(environment)
 
@@ -125,8 +144,35 @@ func _build_environment():
 
 	if mode_id == "saloon":
 		_build_saloon()
+	elif mode_id == "training":
+		_build_training_ground()
 	else:
 		_build_farm()
+
+func _build_training_ground():
+	blue_spawns = [Vector3(0, 0.1, -15.0), Vector3(-2, 0.1, -15.0), Vector3(2, 0.1, -15.0), Vector3(4, 0.1, -15.0)]
+	red_spawns = [
+		Vector3(-8, 0.1, -2), Vector3(-4, 0.1, 2), Vector3(0, 0.1, 5), Vector3(4, 0.1, 2),
+		Vector3(8, 0.1, -2), Vector3(-6, 0.1, 10), Vector3(0, 0.1, 12), Vector3(6, 0.1, 10)
+	]
+	_create_static_box(Vector3(0, -0.3, 0), Vector3(34, 0.6, 34), Color("5a9c57"))
+	_create_boundaries(34, 34)
+	_create_team_pad(Vector3(0, 0.02, -14.0), Color("2d9cff"), 3.8)
+	for z in [-6.0, 2.0, 10.0]:
+		_create_static_box(Vector3(-11.5, 1.0, z), Vector3(1.0, 2.0, 4.0), Color("8b5a2b"))
+		_create_static_box(Vector3(11.5, 1.0, z), Vector3(1.0, 2.0, 4.0), Color("8b5a2b"))
+	for x in [-8.0, -4.0, 0.0, 4.0, 8.0]:
+		_create_static_box(Vector3(x, 0.65, 7.0), Vector3(1.8, 1.3, 0.55), Color("9a6330"))
+	var title = Label3D.new()
+	title.text = "ПОЛИГОН"
+	title.position = Vector3(0, 4.5, 15.5)
+	title.rotation_degrees.y = 180
+	title.font_size = 96
+	title.outline_size = 12
+	title.modulate = Color("ffca3a")
+	add_child(title)
+	_create_cloud(Vector3(-8, 10, -3), 1.0)
+	_create_cloud(Vector3(7, 11, 5), 1.2)
 
 func _build_farm():
 	blue_spawns = [
@@ -193,6 +239,7 @@ func _build_saloon():
 	_create_spawn_gate(1, Color("ff3d68"))
 	_create_saloon_building()
 	_create_saloon_cover()
+	_create_saloon_decorations()
 	_create_control_point()
 	_create_cloud(Vector3(-14, 12, -6), 1.2)
 	_create_cloud(Vector3(3, 13, 4), 1.45)
@@ -259,6 +306,69 @@ func _create_saloon_cover():
 		_create_static_box(item[0], item[1], Color("8b5a2b"))
 	for x in [-19.5, 19.5]:
 		_create_static_box(Vector3(x, 1.0, 0), Vector3(2.6, 2.0, 7.0), Color("b16e36"))
+
+func _create_saloon_decorations():
+	for position in [Vector3(-17, 0, -12), Vector3(18, 0, 11), Vector3(-19, 0, 9), Vector3(19, 0, -10)]:
+		_create_cactus(position)
+	for position in [Vector3(-7.4, 0.55, 3.0), Vector3(-5.8, 0.55, 3.0), Vector3(6.5, 0.55, -3.2), Vector3(8.0, 0.55, -3.2)]:
+		_create_barrel(position)
+	for position in [Vector3(-9.2, 3.0, -5.8), Vector3(9.2, 3.0, -5.8), Vector3(-9.2, 3.0, 5.8), Vector3(9.2, 3.0, 5.8)]:
+		_create_lantern(position)
+
+func _create_cactus(position):
+	var green = Color("3f8f54")
+	_create_static_box(position + Vector3(0, 1.15, 0), Vector3(0.38, 2.3, 0.38), green)
+	_create_static_box(position + Vector3(0.48, 1.35, 0), Vector3(0.75, 0.28, 0.28), green)
+	_create_static_box(position + Vector3(0.82, 1.75, 0), Vector3(0.28, 1.05, 0.28), green)
+	_create_static_box(position + Vector3(-0.42, 0.9, 0), Vector3(0.65, 0.26, 0.26), green)
+	_create_static_box(position + Vector3(-0.7, 1.2, 0), Vector3(0.26, 0.82, 0.26), green)
+
+func _create_barrel(position):
+	var body = StaticBody3D.new()
+	body.position = position
+	body.collision_layer = 1
+	body.collision_mask = 2
+	var collision = CollisionShape3D.new()
+	var shape = CylinderShape3D.new()
+	shape.radius = 0.38
+	shape.height = 1.1
+	collision.shape = shape
+	body.add_child(collision)
+	var mesh_instance = MeshInstance3D.new()
+	var mesh = CylinderMesh.new()
+	mesh.top_radius = 0.38
+	mesh.bottom_radius = 0.38
+	mesh.height = 1.1
+	mesh.radial_segments = 18
+	mesh_instance.mesh = mesh
+	var mat = StandardMaterial3D.new()
+	mat.albedo_color = Color("704326")
+	mat.roughness = 0.82
+	mesh_instance.material_override = mat
+	body.add_child(mesh_instance)
+	add_child(body)
+
+func _create_lantern(position):
+	var holder = MeshInstance3D.new()
+	holder.position = position
+	var mesh = BoxMesh.new()
+	mesh.size = Vector3(0.22, 0.38, 0.18)
+	holder.mesh = mesh
+	var mat = StandardMaterial3D.new()
+	mat.albedo_color = Color("ffca3a")
+	mat.emission_enabled = true
+	mat.emission = Color("ff8a24")
+	mat.emission_energy_multiplier = 1.8
+	holder.material_override = mat
+	add_child(holder)
+	if SaveData.graphics_quality == "high":
+		var light = OmniLight3D.new()
+		light.position = position
+		light.light_color = Color("ffb45c")
+		light.light_energy = 1.4
+		light.omni_range = 5.0
+		light.shadow_enabled = false
+		add_child(light)
 
 func _create_control_point():
 	zone_position = Vector3(0, 0.06, 0)
@@ -502,6 +612,15 @@ func _spawn_teams():
 	add_child(player)
 	player.setup_player(self, 0, SaveData.nickname, blue_spawns[0], hud)
 	var weapons = SaveData.main_weapon_ids()
+	if is_training_session():
+		player.set_training_weapon(SaveData.training_weapon)
+		var dummy_names = ["Манекен 5м", "Манекен 10м", "Манекен 15м", "Манекен 20м", "Манекен 25м", "Манекен 35м", "Манекен 50м", "Манекен 70м"]
+		for i in range(red_spawns.size()):
+			var dummy = BotScript.new()
+			add_child(dummy)
+			dummy.training_dummy = true
+			dummy.setup_bot(self, 1, dummy_names[i], red_spawns[i], weapons[i % weapons.size()], i)
+		return
 	var blue_names = ["Беркут", "Неон", "Шторм"]
 	for i in range(3):
 		var bot = BotScript.new()
@@ -531,11 +650,27 @@ func find_nearest_enemy(actor):
 func get_bot_objective(actor):
 	if mode_id == "saloon":
 		var team_sign = -1.0 if actor.team == 0 else 1.0
+		var phase = int(match_elapsed / 4.0 + actor.role_index) % 4
 		if zone_owner != actor.team:
-			var attack_offsets = [Vector3(-2.2, 0, 0), Vector3(2.2, 0, 0), Vector3(0, 0, -2.1 * team_sign), Vector3(0, 0, 2.1 * team_sign)]
-			return zone_position + attack_offsets[actor.role_index % attack_offsets.size()]
-		var defend_offsets = [Vector3(-4.8, 0, -1.6), Vector3(4.8, 0, 1.6), Vector3(-1.5, 0, 4.8 * team_sign), Vector3(6.6, 0, -3.0 * team_sign)]
-		return zone_position + defend_offsets[actor.role_index % defend_offsets.size()]
+			# Two bots capture. The others approach through opposite doors and cover the circle.
+			if actor.role_index % 4 < 2:
+				var capture_offsets = [Vector3(-1.3, 0, 0.4), Vector3(1.3, 0, -0.4)]
+				return zone_position + capture_offsets[actor.role_index % 2]
+			var ingress = [
+				Vector3(-7.2, 0.1, 4.8 * team_sign), Vector3(7.2, 0.1, 4.8 * team_sign),
+				Vector3(-4.5, 0.1, -2.8 * team_sign), Vector3(4.5, 0.1, -2.8 * team_sign)
+			]
+			return ingress[(actor.role_index + phase) % ingress.size()]
+		# Once owned, only one defender stays in the circle. The rest patrol and push lanes.
+		if actor.role_index % 4 == 0:
+			var hold_offsets = [Vector3(-1.4, 0, 0), Vector3(1.4, 0, 0), Vector3(0, 0, 1.2), Vector3(0, 0, -1.2)]
+			return zone_position + hold_offsets[phase]
+		var patrol = [
+			Vector3(-7.5, 0.1, 1.5), Vector3(7.5, 0.1, -1.5),
+			Vector3(-5.5, 0.1, -6.0 * team_sign), Vector3(5.5, 0.1, -6.0 * team_sign),
+			Vector3(0, 0.1, 9.5 * team_sign)
+		]
+		return patrol[(actor.role_index + phase) % patrol.size()]
 	var lane_x = [-10.0, -3.5, 3.5, 10.0][actor.role_index % 4]
 	var advance_z = 3.0 if actor.team == 0 else -3.0
 	return Vector3(lane_x, 0.1, advance_z)
@@ -544,6 +679,12 @@ func register_kill(killer, victim, hit_info = {}):
 	if not match_active:
 		return
 	victim.deaths += 1
+	if is_training_session():
+		if is_instance_valid(killer):
+			killer.kills += 1
+		hud.show_center_message("ПОПАДАНИЕ ПОДТВЕРЖДЕНО • МАНЕКЕН ВОССТАНОВИТСЯ", 0.9)
+		_respawn_later(victim)
+		return
 	victim.life_streak = 0
 	var valid_killer = is_instance_valid(killer) and killer is Node and killer.is_in_group("combatants") and killer.team != victim.team
 	var assistants = []
@@ -642,11 +783,16 @@ func _respawn_later(actor):
 	await get_tree().create_timer(2.8).timeout
 	if not match_active or not is_instance_valid(actor):
 		return
+	if is_training_session():
+		actor.respawn_at(actor.spawn_position)
+		return
 	var spawns = blue_spawns if actor.team == 0 else red_spawns
 	actor.respawn_at(spawns[randi() % spawns.size()])
 
 func finish_match(aborted = false):
 	if not match_active:
+		return
+	if is_training_session() and not aborted:
 		return
 	match_active = false
 	combat_enabled = false
@@ -754,6 +900,61 @@ func throw_grenade(owner, origin, direction):
 		if match_active:
 			_explode_grenade(owner, grenade.global_position)
 		grenade.queue_free()
+
+func throw_flash_grenade(owner, origin, direction):
+	if not combat_enabled or not is_instance_valid(owner):
+		return
+	var grenade = RigidBody3D.new()
+	grenade.position = origin
+	grenade.collision_layer = 0
+	grenade.collision_mask = 1
+	grenade.mass = 0.28
+	grenade.gravity_scale = 1.05
+	var shape_node = CollisionShape3D.new()
+	var shape = SphereShape3D.new()
+	shape.radius = 0.12
+	shape_node.shape = shape
+	grenade.add_child(shape_node)
+	var mesh_instance = MeshInstance3D.new()
+	var mesh = SphereMesh.new()
+	mesh.radius = 0.12
+	mesh.height = 0.24
+	mesh_instance.mesh = mesh
+	var material = StandardMaterial3D.new()
+	material.albedo_color = Color("dce8ef")
+	material.metallic = 0.75
+	material.roughness = 0.22
+	mesh_instance.material_override = material
+	grenade.add_child(mesh_instance)
+	add_child(grenade)
+	grenade.linear_velocity = direction.normalized() * 12.0 + Vector3.UP * 4.6
+	grenade.angular_velocity = Vector3(8.0, 11.0, 5.0)
+	await get_tree().create_timer(1.05).timeout
+	if is_instance_valid(grenade):
+		if match_active:
+			_explode_flash(owner, grenade.global_position)
+		grenade.queue_free()
+
+func _explode_flash(owner, position):
+	var radius = 10.0
+	for actor in get_tree().get_nodes_in_group("combatants"):
+		if not is_instance_valid(actor) or not actor.alive or actor.team == owner.team:
+			continue
+		var distance = actor.global_position.distance_to(position)
+		if distance > radius or not _blast_has_line(position, actor):
+			continue
+		var duration = lerp(1.2, 3.0, 1.0 - clamp(distance / radius, 0.0, 1.0))
+		actor.apply_flash(duration)
+	var flash = OmniLight3D.new()
+	flash.light_color = Color.WHITE
+	flash.light_energy = 11.0
+	flash.omni_range = 15.0
+	flash.shadow_enabled = false
+	flash.position = position + Vector3.UP * 0.35
+	add_child(flash)
+	await get_tree().create_timer(0.16).timeout
+	if is_instance_valid(flash):
+		flash.queue_free()
 
 func _explode_grenade(owner, position):
 	if is_instance_valid(grenade_audio):

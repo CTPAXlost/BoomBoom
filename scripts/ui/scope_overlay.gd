@@ -17,9 +17,9 @@ func _draw():
 	if not active:
 		return
 	var center = size * 0.5
-	var radius = min(size.x, size.y) * 0.37
+	var radius = min(size.x, size.y) * 0.41
 	var outer_radius = max(size.x, size.y) * 1.35
-	var shade = Color(0.0, 0.0, 0.0, 0.94)
+	var shade = Color(0.0, 0.0, 0.0, 0.82)
 	var segments = 72
 	for i in range(segments):
 		var a0 = TAU * float(i) / float(segments)

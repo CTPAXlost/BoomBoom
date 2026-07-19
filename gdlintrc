@@ -2,3 +2,5 @@ disable:
 - max-line-length
 - class-definitions-order
 - max-public-methods
+
+- max-file-lines

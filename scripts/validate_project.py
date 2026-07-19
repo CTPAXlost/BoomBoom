@@ -26,6 +26,7 @@ required = [
     "scripts/ui/crosshair.gd",
     "scripts/ui/scope_overlay.gd",
     "scripts/ui/store_item_icon.gd",
+    "scripts/ui/control_layout_editor.gd",
     "signing/boomarena-debug.keystore",
     "gdlintrc",
 ]
@@ -168,8 +169,8 @@ for required_setting in [
     'export_path="build/BoomArena-debug.apk"',
     'architectures/arm64-v8a=true',
     'package/unique_name="com.franbpm.boomarena"',
-    'version/code=10',
-    'version/name="0.8.2"',
+    'version/code=11',
+    'version/name="0.9.0"',
 ]:
     if required_setting not in preset_text:
         errors.append(f"Android export preset is missing: {required_setting}")
@@ -179,41 +180,49 @@ checks = {
         "MAX_PLAYER_LEVEL = 5", "LEVEL_XP = [0, 250, 700, 1400, 2400]",
         '"rifle_vortex"', '"rifle_bastion"', '"rifle_phoenix"',
         '"reload_time": 2.0', '"reload_time": 5.0', '"reload_time": 4.0',
-        '"reload_time": 3.0', "HELMET_UNLOCK_LEVEL = 3", "selected_map",
+        '"reload_time": 3.0', "HELMET_UNLOCK_LEVEL = 3",
+        "FLASH_GRENADE_UNLOCK_LEVEL = 3", "REPAIR_KIT_PRICE = 2000",
+        "REPAIR_KIT_RESTORE = 100", "DEFAULT_CONTROL_LAYOUT", "training_weapon",
     ],
     "scripts/game/arena.gd": [
-        'score_limit = 1000 if mode_id == "saloon" else 25',
+        'score_limit = 0 if mode_id == "training" else 1000 if mode_id == "saloon" else 25',
         "func _update_control_zone", "zone_score_accumulator", "_add_team_score(active_team, 5)",
         "FIRST BLOOD", "DOUBLE KILL", "TRIPLE KILL", "UNSTOPPABLE",
-        "func _build_saloon", "func get_bot_objective", "show_match_results", "signal arena_ready",
+        "func _build_saloon", "func _build_training_ground", "func get_bot_objective",
+        "func throw_flash_grenade", "show_match_results", "signal arena_ready",
     ],
     "scripts/game/bot.gd": [
         "bot_mag", "reload_finish_time", "func _start_reload", "func _finish_reload",
-        "func _update_footsteps", "get_bot_objective",
+        "func _update_footsteps", "get_bot_objective", "training_dummy", "func apply_flash",
     ],
     "scripts/game/player.gd": [
         "func _handle_weapon_selection", "consume_slot_request", "Input.is_action_just_pressed",
-        "func _update_footsteps", "func _play_weapon_sound",
-        '{"method": "knife", "headshot": false}', "headshot_damage_multiplier",
+        "func _update_footsteps", "func _play_weapon_sound", "func throw_flash_grenade",
+        "func use_repair_kit", "func set_training_weapon", "headshot_damage_multiplier",
     ],
     "scripts/main.gd": [
         "ResourceLoader.load", "func _watch_arena_startup", "BOOM_ARENA_SMOKE_TEST_OK",
+        "BOOM_ARENA_TRAINING_SMOKE_TEST_OK", "--smoke-training",
     ],
     "scripts/ui/menu_screen.gd": [
-        "МАГАЗИН", "ТАКТИЧЕСКАЯ КАСКА", "StoreIconScript", "_select_map",
+        "МАГАЗИН", "ПОЛИГОН", "РАСПОЛОЖЕНИЕ КНОПОК УПРАВЛЕНИЯ",
+        "ControlLayoutEditorScript", "ТАКТИЧЕСКАЯ КАСКА", "StoreIconScript",
     ],
     "scripts/ui/mobile_hud.gd": [
         "func set_precombat_mode", "func update_zone", "ScopeOverlayScript",
+        "func _apply_saved_control_layout", "func apply_flash", "flash_overlay",
+    ],
+    "scripts/ui/control_layout_editor.gd": [
+        "class_name ControlLayoutEditor", "SaveData.set_control_layout",
+        "SaveData.reset_control_layout", "func _move_proxy",
     ],
 }
-for relative, snippets in checks.items():
-    path = root / relative
-    if not path.is_file():
-        continue
-    text = path.read_text(encoding="utf-8")
-    for snippet in snippets:
-        if snippet not in text:
-            errors.append(f"Version 0.8 feature is missing from {relative}: {snippet}")
+
+arena_path = root / "scripts/game/arena.gd"
+if arena_path.is_file():
+    arena_source = arena_path.read_text(encoding="utf-8")
+    if arena_source.count("\t_create_control_point()") != 1:
+        errors.append("Saloon must create exactly one central control point")
 
 combatant_path = root / "scripts/game/combatant.gd"
 if combatant_path.is_file():
@@ -229,6 +238,10 @@ if "--headless --path . --import" not in workflow_text:
     errors.append("GitHub Actions must import Godot resources before the battle smoke test")
 if workflow_text.find("--headless --path . --import") > workflow_text.find("-- --smoke-test"):
     errors.append("Godot resource import must run before the battle smoke test")
+if "-- --smoke-training" not in workflow_text:
+    errors.append("GitHub Actions must run the training ground smoke test")
+if "BOOM_ARENA_TRAINING_SMOKE_TEST_OK" not in workflow_text:
+    errors.append("Training smoke test marker is missing from GitHub Actions")
 
 raw_audio_preloads = []
 for gd_file in sorted(root.rglob("*.gd")):

@@ -18,6 +18,8 @@ var reload_request = false
 var knife_request = false
 var medkit_request = false
 var grenade_request = false
+var flash_request = false
+var repair_request = false
 var auto_request = false
 var slot_request = -1
 var crosshair_enemy = false
@@ -52,6 +54,12 @@ var knife_button
 var reload_button
 var medkit_button
 var grenade_button
+var flash_button
+var repair_button
+var slots_container
+var flash_overlay
+var flash_time = 0.0
+var flash_total = 0.0
 var fps_label
 var countdown_overlay
 var countdown_label
@@ -93,6 +101,12 @@ func _process(delta):
 			medkit_button.set_text("АПТЕЧКА\n%d • жизнь %d" % [int(consumables.medkits), int(consumables.medkits_life)])
 		if is_instance_valid(grenade_button):
 			grenade_button.set_text("ГРАНАТА\n%d • жизнь %d" % [int(consumables.grenades), int(consumables.grenades_life)])
+		if is_instance_valid(flash_button):
+			flash_button.set_text("СВЕТОШУМ\n%d • жизнь %d" % [int(consumables.flashes), int(consumables.flashes_life)])
+		if is_instance_valid(repair_button):
+			repair_button.set_text("РЕМКОМПЛЕКТ\n%d • жизнь %d" % [int(consumables.repairs), int(consumables.repairs_life)])
+		flash_button.visible = SaveData.player_level >= SaveData.FLASH_GRENADE_UNLOCK_LEVEL
+		repair_button.visible = SaveData.player_level >= SaveData.REPAIR_KIT_UNLOCK_LEVEL
 	if is_instance_valid(fps_label):
 		fps_label.visible = SaveData.show_fps
 		fps_label.text = "FPS %d" % Engine.get_frames_per_second()
@@ -107,6 +121,12 @@ func _process(delta):
 	else:
 		damage_overlay.color.a = 0.0
 	knife_overlay.modulate.a = move_toward(knife_overlay.modulate.a, 0.0, delta * 5.0)
+	if flash_time > 0.0:
+		flash_time = max(0.0, flash_time - delta)
+		var hold_ratio = flash_time / max(flash_total, 0.01)
+		flash_overlay.color.a = 1.0 if hold_ratio > 0.45 else clamp(hold_ratio / 0.45, 0.0, 1.0)
+	else:
+		flash_overlay.color.a = 0.0
 	shot_flash_time = max(0.0, shot_flash_time - delta)
 	hit_marker_time = max(0.0, hit_marker_time - delta)
 	crosshair_kick = move_toward(crosshair_kick, 0.0, delta * 7.5)
@@ -123,6 +143,12 @@ func _build_hud():
 	damage_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	damage_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	root.add_child(damage_overlay)
+
+	flash_overlay = ColorRect.new()
+	flash_overlay.color = Color(1, 1, 1, 0)
+	flash_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	flash_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	root.add_child(flash_overlay)
 
 	_build_status(root)
 	_build_controls(root)
@@ -152,6 +178,7 @@ func _build_hud():
 
 	_build_countdown_overlay()
 	_build_result_overlay()
+	root.move_child(flash_overlay, root.get_child_count() - 1)
 
 func _build_status(parent):
 	var health_panel = PanelContainer.new()
@@ -233,12 +260,10 @@ func _build_controls(parent):
 	parent.add_child(look_pad)
 
 	joystick = VirtualJoystickScript.new()
-	_anchor_rect(joystick, 0.0, 0.42, 0.42, 1.0, 10, 0, -8, -8)
 	joystick.vector_changed.connect(_on_move_changed)
 	parent.add_child(joystick)
 
 	fire_button = _touch_button("ОГОНЬ", Color("ef476f"), true)
-	_anchor_rect(fire_button, 1.0, 1.0, 1.0, 1.0, -184, -184, -24, -24)
 	fire_button.held_changed.connect(_on_fire_held)
 	parent.add_child(fire_button)
 
@@ -248,46 +273,80 @@ func _build_controls(parent):
 	parent.add_child(aim_button)
 
 	knife_button = _touch_button("НОЖ", Color("ffca3a"))
-	_anchor_rect(knife_button, 1.0, 1.0, 1.0, 1.0, -332, -108, -212, -28)
 	knife_button.pressed.connect(_request_knife)
 	parent.add_child(knife_button)
 
 	reload_button = _touch_button("R", Color("23e6ff"))
-	_anchor_rect(reload_button, 1.0, 1.0, 1.0, 1.0, -270, -302, -178, -226)
 	reload_button.pressed.connect(_request_reload)
 	parent.add_child(reload_button)
 
 	medkit_button = _touch_button("АПТЕЧКА", Color("8cff98"))
-	_anchor_rect(medkit_button, 1.0, 1.0, 1.0, 1.0, -450, -310, -292, -235)
 	medkit_button.pressed.connect(_request_medkit)
 	parent.add_child(medkit_button)
 
 	grenade_button = _touch_button("ГРАНАТА", Color("ff8a24"))
-	_anchor_rect(grenade_button, 1.0, 1.0, 1.0, 1.0, -500, -220, -350, -140)
 	grenade_button.pressed.connect(_request_grenade)
 	parent.add_child(grenade_button)
 
+	flash_button = _touch_button("СВЕТОШУМ", Color("f7fbff"))
+	flash_button.pressed.connect(_request_flash)
+	parent.add_child(flash_button)
+
+	repair_button = _touch_button("РЕМКОМПЛЕКТ", Color("77d8ff"))
+	repair_button.pressed.connect(_request_repair)
+	parent.add_child(repair_button)
+
 	auto_button = _touch_button("", Color("8cff98"))
-	_anchor_rect(auto_button, 1.0, 0.0, 1.0, 0.0, -160, 92, -24, 158)
 	auto_button.pressed.connect(_request_auto)
 	parent.add_child(auto_button)
 	update_auto_button()
 
-	var slots = HBoxContainer.new()
-	slots.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	slots.add_theme_constant_override("separation", 8)
-	_anchor_rect(slots, 0.5, 1.0, 0.5, 1.0, -192, -78, 192, -16)
-	parent.add_child(slots)
+	slots_container = HBoxContainer.new()
+	slots_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	slots_container.add_theme_constant_override("separation", 8)
+	parent.add_child(slots_container)
 	for i in range(4):
 		var slot_button = _touch_button(str(i + 1), Color("23e6ff"))
 		slot_button.custom_minimum_size = Vector2(88, 62)
 		slot_button.pressed.connect(_request_slot.bind(i))
-		slots.add_child(slot_button)
+		slots_container.add_child(slot_button)
 		slot_buttons.append(slot_button)
 
+	_apply_saved_control_layout()
 	look_pad.set_blocked_controls(
-		[fire_button, aim_button, knife_button, reload_button, medkit_button, grenade_button, auto_button] + slot_buttons
+		[fire_button, aim_button, knife_button, reload_button, medkit_button, grenade_button, flash_button, repair_button, auto_button] + slot_buttons
 	)
+
+func _apply_saved_control_layout():
+	_apply_layout_rect(joystick, "joystick")
+	_apply_layout_rect(fire_button, "fire")
+	_apply_layout_rect(aim_button, "aim")
+	_apply_layout_rect(knife_button, "knife")
+	_apply_layout_rect(reload_button, "reload")
+	_apply_layout_rect(medkit_button, "medkit")
+	_apply_layout_rect(grenade_button, "grenade")
+	_apply_layout_rect(flash_button, "flash")
+	_apply_layout_rect(repair_button, "repair")
+	_apply_layout_rect(auto_button, "auto")
+	_apply_layout_rect(slots_container, "slots")
+
+func _apply_layout_rect(control, key):
+	if not is_instance_valid(control):
+		return
+	var data = SaveData.control_layout.get(key, SaveData.DEFAULT_CONTROL_LAYOUT[key])
+	control.anchor_left = float(data.x)
+	control.anchor_top = float(data.y)
+	control.anchor_right = float(data.x) + float(data.w)
+	control.anchor_bottom = float(data.y) + float(data.h)
+	control.offset_left = 0
+	control.offset_top = 0
+	control.offset_right = 0
+	control.offset_bottom = 0
+
+func apply_flash(duration):
+	flash_total = max(0.1, float(duration))
+	flash_time = flash_total
+	flash_overlay.color.a = 1.0
 
 func _build_countdown_overlay():
 	countdown_overlay = Control.new()
@@ -324,7 +383,7 @@ func hide_countdown():
 
 func set_precombat_mode(value):
 	precombat_mode = bool(value)
-	for button in [fire_button, aim_button, knife_button, reload_button, medkit_button, grenade_button, auto_button]:
+	for button in [fire_button, aim_button, knife_button, reload_button, medkit_button, grenade_button, flash_button, repair_button, auto_button]:
 		if is_instance_valid(button):
 			button.set_enabled(not precombat_mode)
 	for button in slot_buttons:
@@ -335,7 +394,7 @@ func set_precombat_mode(value):
 
 func set_combat_controls_enabled(value):
 	var enabled = bool(value)
-	for button in [fire_button, aim_button, knife_button, reload_button, medkit_button, grenade_button, auto_button] + slot_buttons:
+	for button in [fire_button, aim_button, knife_button, reload_button, medkit_button, grenade_button, flash_button, repair_button, auto_button] + slot_buttons:
 		if is_instance_valid(button):
 			button.set_enabled(enabled)
 	if not enabled:
@@ -348,6 +407,8 @@ func release_combat_actions():
 	knife_request = false
 	medkit_request = false
 	grenade_request = false
+	flash_request = false
+	repair_request = false
 	if is_instance_valid(aim_button):
 		aim_button.set_text("ПРИЦЕЛ\nOFF")
 
@@ -493,6 +554,12 @@ func _request_medkit():
 func _request_grenade():
 	grenade_request = true
 
+func _request_flash():
+	flash_request = true
+
+func _request_repair():
+	repair_request = true
+
 func _request_auto():
 	auto_request = true
 
@@ -521,6 +588,16 @@ func consume_grenade():
 	grenade_request = false
 	return value
 
+func consume_flash():
+	var value = flash_request
+	flash_request = false
+	return value
+
+func consume_repair():
+	var value = repair_request
+	repair_request = false
+	return value
+
 func consume_auto_toggle():
 	var value = auto_request
 	auto_request = false
@@ -539,11 +616,17 @@ func update_auto_button():
 		auto_button.set_text("AUTO\n%s" % ("ON" if SaveData.auto_fire else "OFF"))
 
 func update_match(blue, red, elapsed, earned, limit, mode_id = "farm"):
-	score_label.text = "СИНИЕ %d : %d КРАСНЫЕ" % [blue, red]
+	if str(mode_id) == "training":
+		score_label.text = "ПОЛИГОН • ТРЕНИРОВКА"
+	else:
+		score_label.text = "СИНИЕ %d : %d КРАСНЫЕ" % [blue, red]
 	var mins = int(elapsed / 60.0)
 	var secs = int(elapsed) % 60
-	var mode_text = "КОНТРОЛЬ" if str(mode_id) == "saloon" else "УСТРАНЕНИЯ"
-	timer_label.text = "%s • ЦЕЛЬ %d • %02d:%02d" % [mode_text, limit, mins, secs]
+	if str(mode_id) == "training":
+		timer_label.text = "ПОЛИГОН • БЕЗ ЛИМИТА • %02d:%02d" % [mins, secs]
+	else:
+		var mode_text = "КОНТРОЛЬ" if str(mode_id) == "saloon" else "УСТРАНЕНИЯ"
+		timer_label.text = "%s • ЦЕЛЬ %d • %02d:%02d" % [mode_text, limit, mins, secs]
 	coins_label.text = "+%d ◈" % earned
 
 func update_zone(owner, capture_team, progress, contested):
@@ -643,6 +726,6 @@ func release_controls():
 		look_pad.cancel_touch()
 	medkit_request = false
 	grenade_request = false
-	for button in [fire_button, aim_button, knife_button, reload_button, medkit_button, grenade_button, auto_button] + slot_buttons:
+	for button in [fire_button, aim_button, knife_button, reload_button, medkit_button, grenade_button, flash_button, repair_button, auto_button] + slot_buttons:
 		if is_instance_valid(button):
 			button.force_release()
