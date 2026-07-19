@@ -7,6 +7,7 @@ const VirtualJoystickScript = preload("res://scripts/ui/virtual_joystick.gd")
 const LookPadScript = preload("res://scripts/ui/look_pad.gd")
 const CrosshairScript = preload("res://scripts/ui/crosshair.gd")
 const TouchButtonScript = preload("res://scripts/ui/touch_action_button.gd")
+const ScopeOverlayScript = preload("res://scripts/ui/scope_overlay.gd")
 
 var player
 var move_vector = Vector2.ZERO
@@ -36,10 +37,12 @@ var score_label
 var timer_label
 var coins_label
 var distance_label
+var zone_label
 var auto_button
 var center_message
 var joystick
 var crosshair
+var scope_overlay
 var damage_overlay
 var knife_overlay
 var look_pad
@@ -60,6 +63,7 @@ var result_reward
 var result_time
 var result_grid
 var continue_button
+var precombat_mode = false
 
 func _ready():
 	_build_hud()
@@ -74,6 +78,16 @@ func _process(delta):
 		armor_label.modulate.a = 1.0 if player.max_armor > 0.0 else 0.42
 		ammo_label.text = player.ammo_text()
 		weapon_label.text = player.weapon_display_name()
+		if is_instance_valid(scope_overlay):
+			scope_overlay.set_active(player.aiming and player.current_weapon_id == "sniper" and player.alive)
+		if is_instance_valid(crosshair):
+			crosshair.visible = not (player.aiming and player.current_weapon_id == "sniper")
+		for i in range(slot_buttons.size()):
+			var id = SaveData.loadout[i]
+			var slot_text = str(i + 1)
+			if id != "":
+				slot_text += "\n" + str(SaveData.weapon_catalog()[id].type).left(6)
+			slot_buttons[i].set_text(slot_text)
 		var consumables = player.consumable_text()
 		if is_instance_valid(medkit_button):
 			medkit_button.set_text("АПТЕЧКА\n%d • жизнь %d" % [int(consumables.medkits), int(consumables.medkits_life)])
@@ -118,6 +132,9 @@ func _build_hud():
 	crosshair.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_anchor_rect(crosshair, 0.5, 0.5, 0.5, 0.5, -34, -34, 34, 34)
 	root.add_child(crosshair)
+
+	scope_overlay = ScopeOverlayScript.new()
+	root.add_child(scope_overlay)
 
 	center_message = _label("", 30, Color("23e6ff"))
 	center_message.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -178,6 +195,13 @@ func _build_status(parent):
 	distance_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	distance_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	distance_panel.add_child(distance_label)
+
+	zone_label = _label("", 19, Color("ffca3a"))
+	zone_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	zone_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	zone_label.visible = false
+	_anchor_rect(zone_label, 0.5, 0.0, 0.5, 0.0, -310, 141, 310, 181)
+	parent.add_child(zone_label)
 
 	coins_label = _label("+0 ◈", 22, Color("ffca3a"))
 	coins_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
@@ -277,6 +301,7 @@ func _build_countdown_overlay():
 	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	countdown_overlay.add_child(shade)
 	countdown_label = _label("5", 112, Color("ffca3a"))
+	countdown_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	countdown_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	countdown_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_anchor_rect(countdown_label, 0.5, 0.5, 0.5, 0.5, -280, -130, 280, 130)
@@ -286,6 +311,7 @@ func show_countdown(value):
 	if not is_instance_valid(countdown_overlay):
 		return
 	countdown_label.text = str(value)
+	countdown_label.add_theme_font_size_override("font_size", 52 if "\n" in str(value) else 112)
 	countdown_label.add_theme_color_override(
 		"font_color",
 		Color("8cff98") if str(value) == "В БОЙ!" else Color("ffca3a")
@@ -296,6 +322,17 @@ func hide_countdown():
 	if is_instance_valid(countdown_overlay):
 		countdown_overlay.visible = false
 
+func set_precombat_mode(value):
+	precombat_mode = bool(value)
+	for button in [fire_button, aim_button, knife_button, reload_button, medkit_button, grenade_button, auto_button]:
+		if is_instance_valid(button):
+			button.set_enabled(not precombat_mode)
+	for button in slot_buttons:
+		if is_instance_valid(button):
+			button.set_enabled(true)
+	if precombat_mode:
+		release_combat_actions()
+
 func set_combat_controls_enabled(value):
 	var enabled = bool(value)
 	for button in [fire_button, aim_button, knife_button, reload_button, medkit_button, grenade_button, auto_button] + slot_buttons:
@@ -303,6 +340,16 @@ func set_combat_controls_enabled(value):
 			button.set_enabled(enabled)
 	if not enabled:
 		release_controls()
+
+func release_combat_actions():
+	fire_held = false
+	aim_held = false
+	reload_request = false
+	knife_request = false
+	medkit_request = false
+	grenade_request = false
+	if is_instance_valid(aim_button):
+		aim_button.set_text("ПРИЦЕЛ\nOFF")
 
 func _build_result_overlay():
 	result_overlay = Control.new()
@@ -318,9 +365,9 @@ func _build_result_overlay():
 	result_overlay.add_child(shade)
 
 	var panel = PanelContainer.new()
-	panel.anchor_left = 0.12
+	panel.anchor_left = 0.04
 	panel.anchor_top = 0.055
-	panel.anchor_right = 0.88
+	panel.anchor_right = 0.96
 	panel.anchor_bottom = 0.945
 	panel.offset_left = 0
 	panel.offset_top = 0
@@ -358,8 +405,8 @@ func _build_result_overlay():
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	box.add_child(scroll)
 	result_grid = GridContainer.new()
-	result_grid.columns = 5
-	result_grid.custom_minimum_size = Vector2(850, 0)
+	result_grid.columns = 9
+	result_grid.custom_minimum_size = Vector2(1250, 0)
 	result_grid.add_theme_constant_override("h_separation", 14)
 	result_grid.add_theme_constant_override("v_separation", 5)
 	scroll.add_child(result_grid)
@@ -491,12 +538,31 @@ func update_auto_button():
 	if auto_button:
 		auto_button.set_text("AUTO\n%s" % ("ON" if SaveData.auto_fire else "OFF"))
 
-func update_match(blue, red, elapsed, earned, limit):
+func update_match(blue, red, elapsed, earned, limit, mode_id = "farm"):
 	score_label.text = "СИНИЕ %d : %d КРАСНЫЕ" % [blue, red]
 	var mins = int(elapsed / 60.0)
 	var secs = int(elapsed) % 60
-	timer_label.text = "ЦЕЛЬ %d • %02d:%02d" % [limit, mins, secs]
+	var mode_text = "КОНТРОЛЬ" if str(mode_id) == "saloon" else "УСТРАНЕНИЯ"
+	timer_label.text = "%s • ЦЕЛЬ %d • %02d:%02d" % [mode_text, limit, mins, secs]
 	coins_label.text = "+%d ◈" % earned
+
+func update_zone(owner, capture_team, progress, contested):
+	if not is_instance_valid(zone_label):
+		return
+	zone_label.visible = true
+	if bool(contested):
+		zone_label.text = "ТОЧКА ОСПАРИВАЕТСЯ • ОЧКИ НЕ ИДУТ"
+		zone_label.add_theme_color_override("font_color", Color("ffca3a"))
+		return
+	if int(owner) >= 0:
+		zone_label.text = ("СИНЯЯ ТОЧКА" if int(owner) == 0 else "КРАСНАЯ ТОЧКА") + " • +5 ОЧКОВ/СЕК"
+		zone_label.add_theme_color_override("font_color", Color("2d9cff") if int(owner) == 0 else Color("ff3d68"))
+	elif int(capture_team) >= 0:
+		zone_label.text = "%s ЗАХВАТ: %.1f / 5.0 СЕК" % ["СИНИЕ" if int(capture_team) == 0 else "КРАСНЫЕ", float(progress)]
+		zone_label.add_theme_color_override("font_color", Color("2d9cff") if int(capture_team) == 0 else Color("ff3d68"))
+	else:
+		zone_label.text = "ТОЧКА НЕЙТРАЛЬНА"
+		zone_label.add_theme_color_override("font_color", Color("d8e6f0"))
 
 func update_distance(distance, max_range, has_target, in_range):
 	if not is_instance_valid(distance_label):
@@ -526,7 +592,7 @@ func on_weapon_fired(hit_enemy, headshot = false, multiplier = 1.0):
 	if headshot:
 		show_center_message("В ГОЛОВУ!  ×%.2f" % float(multiplier), 0.75)
 
-func show_match_results(title, blue, red, rows, reward, elapsed, xp_reward, progression):
+func show_match_results(title, blue, red, rows, reward, elapsed, xp_reward, progression, mode_id = "farm"):
 	release_controls()
 	result_title.text = "%s • БОЙ ОКОНЧЕН" % title
 	result_score.text = "СИНИЕ %d : %d КРАСНЫЕ" % [blue, red]
@@ -535,14 +601,11 @@ func show_match_results(title, blue, red, rows, reward, elapsed, xp_reward, prog
 		result_title.text += " • НОВЫЙ УРОВЕНЬ %d!" % int(progression.get("level", 2))
 	var mins = int(elapsed / 60.0)
 	var secs = int(elapsed) % 60
-	result_time.text = "ВРЕМЯ %02d:%02d" % [mins, secs]
+	result_time.text = "ВРЕМЯ %02d:%02d • %s" % [mins, secs, "КОНТРОЛЬ ЗОНЫ" if str(mode_id) == "saloon" else "КОМАНДНЫЙ БОЙ"]
 	for child in result_grid.get_children():
 		child.queue_free()
-	_add_result_cell("КОМАНДА", Color("9db4c7"), true)
-	_add_result_cell("ИГРОК", Color("9db4c7"), true)
-	_add_result_cell("УСТР.", Color("9db4c7"), true)
-	_add_result_cell("АССИСТЫ", Color("9db4c7"), true)
-	_add_result_cell("СМЕРТИ", Color("9db4c7"), true)
+	for header in ["КОМАНДА", "ИГРОК", "УСТР.", "АССИСТЫ", "СМЕРТИ", "ОЧКИ", "СЕРИЯ", "ЗАХВАТЫ", "ЗОНА"]:
+		_add_result_cell(header, Color("9db4c7"), true)
 	for row in rows:
 		var team_color = Color("2d9cff") if int(row["team"]) == 0 else Color("ff3d68")
 		var name_color = Color("ffca3a") if bool(row["player"]) else Color.WHITE
@@ -551,6 +614,10 @@ func show_match_results(title, blue, red, rows, reward, elapsed, xp_reward, prog
 		_add_result_cell(str(row["kills"]), Color("8cff98"))
 		_add_result_cell(str(row["assists"]), Color("77d8ff"))
 		_add_result_cell(str(row["deaths"]), Color("ff9f1c"))
+		_add_result_cell(str(row.get("points", 0)), Color("ffca3a"))
+		_add_result_cell(str(row.get("streak", 0)), Color("b48cff"))
+		_add_result_cell(str(row.get("captures", 0)), Color("23e6ff"))
+		_add_result_cell("%dс" % int(row.get("zone_seconds", 0)), Color("d8e6f0"))
 	result_overlay.visible = true
 	if is_instance_valid(look_pad):
 		look_pad.set_process_input(false)
@@ -558,8 +625,9 @@ func show_match_results(title, blue, red, rows, reward, elapsed, xp_reward, prog
 
 func _add_result_cell(text, color, header = false):
 	var cell = _label(text, 20 if header else 18, color)
-	cell.custom_minimum_size = Vector2(115 if result_grid.get_child_count() % 5 != 1 else 250, 29)
-	cell.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER if result_grid.get_child_count() % 5 != 1 else HORIZONTAL_ALIGNMENT_LEFT
+	var column = result_grid.get_child_count() % 9
+	cell.custom_minimum_size = Vector2(210 if column == 1 else 105, 29)
+	cell.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT if column == 1 else HORIZONTAL_ALIGNMENT_CENTER
 	result_grid.add_child(cell)
 
 func release_controls():

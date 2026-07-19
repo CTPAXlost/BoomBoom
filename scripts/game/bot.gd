@@ -2,11 +2,12 @@ extends Combatant
 class_name BotCombatant
 
 var target
-var speed = 4.7
+var speed = 4.05
 var fire_ready = 0.0
 var retarget_ready = 0.0
 var strafe_sign = 1.0
 var weapon_id = "rifle"
+var role_index = 0
 var body_root
 var torso_mesh
 var head_mesh
@@ -15,10 +16,25 @@ var right_arm
 var left_leg
 var right_leg
 var weapon_root
-var muzzle
+var muzzle = Vector3.ZERO
 var name_label
 var weapon_label
 var animation_time = 0.0
+var bot_mag = 0
+var bot_reserve = 0
+var reloading = false
+var reload_finish_time = 0.0
+var shot_audio
+var reload_audio
+var footstep_audio
+var footstep_timer = 0.0
+var footstep_index = 0
+
+const FOOTSTEP_SOUNDS = [
+	preload("res://assets/audio/footstep1.wav"),
+	preload("res://assets/audio/footstep2.wav")
+]
+const RELOAD_SOUND = preload("res://assets/audio/reload.wav")
 
 func _ready():
 	_build_body()
@@ -66,6 +82,19 @@ func _build_body():
 	weapon_root.rotation_degrees = Vector3(0, 0, -4)
 	body_root.add_child(weapon_root)
 
+	shot_audio = AudioStreamPlayer3D.new()
+	shot_audio.max_distance = 46.0
+	shot_audio.unit_size = 4.0
+	add_child(shot_audio)
+	reload_audio = AudioStreamPlayer3D.new()
+	reload_audio.stream = RELOAD_SOUND
+	reload_audio.max_distance = 22.0
+	add_child(reload_audio)
+	footstep_audio = AudioStreamPlayer3D.new()
+	footstep_audio.max_distance = 11.0
+	footstep_audio.volume_db = -10.0
+	add_child(footstep_audio)
+
 	name_label = Label3D.new()
 	name_label.position.y = 2.5
 	name_label.font_size = 28
@@ -100,15 +129,24 @@ func _limb_pivot(pos, size_value, color):
 	pivot.add_child(limb)
 	return pivot
 
-func setup_bot(p_game, p_team, p_name, p_spawn, p_weapon = "rifle"):
+func setup_bot(p_game, p_team, p_name, p_spawn, p_weapon = "rifle", p_role_index = 0):
 	setup(p_game, p_team, p_name, p_spawn)
 	weapon_id = p_weapon if SaveData.main_weapon_ids().has(p_weapon) else "rifle"
+	role_index = int(p_role_index)
 	if not is_node_ready():
 		await ready
 	name_label.text = actor_name
 	weapon_label.text = SaveData.weapon_catalog()[weapon_id].type
 	_apply_team_material()
 	_build_weapon_model()
+	_reset_ammo()
+
+func _reset_ammo():
+	var stats = SaveData.get_weapon_stats(weapon_id, 1)
+	bot_mag = int(stats.magazine)
+	bot_reserve = int(stats.reserve) * 8
+	reloading = false
+	reload_finish_time = 0.0
 
 func _apply_team_material():
 	var team_color = Color("2d9cff") if team == 0 else Color("ff3d68")
@@ -147,10 +185,17 @@ func _build_weapon_model():
 		_add_weapon_box(Vector3(0, -0.04, 0.38), Vector3(0.18, 0.16, 0.36), Color("5d3b24"))
 		muzzle = Vector3(0, 0, -1.25)
 	else:
-		_add_weapon_box(Vector3(0, 0, -0.16), Vector3(0.18, 0.16, 0.66), color)
+		var length = 0.66
+		if weapon_id == "rifle_vortex":
+			length = 0.72
+		elif weapon_id == "rifle_bastion":
+			length = 0.78
+		elif weapon_id == "rifle_phoenix":
+			length = 0.84
+		_add_weapon_box(Vector3(0, 0, -0.16), Vector3(0.18, 0.16, length), color)
 		_add_weapon_box(Vector3(0, 0, -0.62), Vector3(0.065, 0.065, 0.38), Color("20262d"))
 		_add_weapon_box(Vector3(0, -0.14, 0.22), Vector3(0.16, 0.28, 0.25), Color("303944"))
-		muzzle = Vector3(0, 0, -0.84)
+		muzzle = Vector3(0, 0, -0.84 - max(0.0, length - 0.66) * 0.5)
 
 func _add_weapon_box(pos, size_value, color):
 	var mesh_instance = _body_box(pos, size_value, color)
@@ -167,66 +212,109 @@ func _physics_process(delta):
 		_animate_body(delta, false)
 		return
 	var now = Time.get_ticks_msec() * 0.001
+	if reloading and now >= reload_finish_time:
+		_finish_reload()
 	if not is_instance_valid(target) or not target.alive or now >= retarget_ready:
 		target = game.find_nearest_enemy(self)
 		retarget_ready = now + randf_range(0.35, 0.75)
-		if randf() < 0.25:
+		if randf() < 0.28:
 			strafe_sign *= -1.0
-	if not is_instance_valid(target):
-		return
 
 	var stats = SaveData.get_weapon_stats(weapon_id, 1)
-	var to_target = target.global_position - global_position
-	var distance = to_target.length()
-	var flat = Vector3(to_target.x, 0.0, to_target.z)
-	if flat.length() > 0.01:
-		look_at(global_position + flat, Vector3.UP)
-
-	var ideal_distance = 12.0
-	if weapon_id == "shotgun":
-		ideal_distance = 4.2
-	elif weapon_id == "machinegun":
-		ideal_distance = 18.0
-	elif weapon_id == "sniper":
-		ideal_distance = 32.0
-
+	var objective = game.get_bot_objective(self)
 	var desired = Vector3.ZERO
-	if flat.length() > 0.01:
+	var can_engage = false
+	var distance = INF
+	var flat = Vector3.ZERO
+	if is_instance_valid(target):
+		var to_target = target.global_position - global_position
+		distance = to_target.length()
+		flat = Vector3(to_target.x, 0.0, to_target.z)
+		can_engage = distance <= float(stats.range) * 1.08 and _has_line_of_sight(target)
+		if can_engage and flat.length() > 0.01:
+			look_at(global_position + flat, Vector3.UP)
+
+	if can_engage:
+		var ideal_distance = 12.0
+		if weapon_id == "shotgun":
+			ideal_distance = 4.2
+		elif weapon_id == "machinegun":
+			ideal_distance = 18.0
+		elif weapon_id == "sniper":
+			ideal_distance = 31.0
+		elif SaveData.automatic_weapon_ids().has(weapon_id):
+			ideal_distance = min(16.0, float(stats.range) * 0.65)
 		if distance > ideal_distance + 1.8:
 			desired += flat.normalized()
 		elif distance < max(2.2, ideal_distance - 2.0):
-			desired -= flat.normalized() * 0.68
+			desired -= flat.normalized() * 0.62
 		var side = flat.normalized().cross(Vector3.UP) * strafe_sign
-		if distance < float(stats.range) + 3.0:
-			desired += side * (0.36 if weapon_id == "sniper" else 0.54 if weapon_id == "machinegun" else 0.68)
+		desired += side * (0.34 if weapon_id == "sniper" else 0.48)
+	else:
+		var to_objective = objective - global_position
+		var flat_objective = Vector3(to_objective.x, 0.0, to_objective.z)
+		if flat_objective.length() > 0.8:
+			desired = flat_objective.normalized()
+			look_at(global_position + flat_objective, Vector3.UP)
+
+	desired = _with_team_separation(desired)
 	if desired.length() > 1.0:
 		desired = desired.normalized()
-
-	velocity.x = desired.x * speed
-	velocity.z = desired.z * speed
+	var target_velocity = desired * speed
+	velocity.x = move_toward(velocity.x, target_velocity.x, delta * 12.0)
+	velocity.z = move_toward(velocity.z, target_velocity.z, delta * 12.0)
 	if not is_on_floor():
 		velocity.y -= 24.0 * delta
 	else:
 		velocity.y = -0.1
 	move_and_slide()
-	_animate_body(delta, Vector2(velocity.x, velocity.z).length() > 0.25)
+	var moving = Vector2(velocity.x, velocity.z).length() > 0.25
+	_animate_body(delta, moving)
+	_update_footsteps(delta, moving)
 
-	if distance <= float(stats.range) and now >= fire_ready and _has_line_of_sight(target):
-		shoot(target)
+	if can_engage and not reloading and now >= fire_ready:
+		if bot_mag <= 0:
+			_start_reload(stats)
+		else:
+			shoot(target)
+
+func _with_team_separation(current_desired):
+	var push = Vector3.ZERO
+	for ally in get_tree().get_nodes_in_group("team_%d" % team):
+		if ally == self or not is_instance_valid(ally) or not ally.alive:
+			continue
+		var offset = global_position - ally.global_position
+		offset.y = 0.0
+		var distance = offset.length()
+		if distance > 0.01 and distance < 1.35:
+			push += offset.normalized() * (1.35 - distance)
+	return current_desired + push * 0.5
 
 func _animate_body(delta, moving):
-	var blend = min(1.0, delta * 12.0)
+	var blend = min(1.0, delta * 10.0)
 	if moving:
-		animation_time += delta * 8.5
-	var swing = sin(animation_time) * 28.0 if moving else 0.0
+		animation_time += delta * 7.0
+	var swing = sin(animation_time) * 24.0 if moving else 0.0
 	left_leg.rotation_degrees.x = lerp(left_leg.rotation_degrees.x, swing, blend)
 	right_leg.rotation_degrees.x = lerp(right_leg.rotation_degrees.x, -swing, blend)
-	left_arm.rotation_degrees.x = lerp(left_arm.rotation_degrees.x, -swing * 0.38 - 42.0, blend)
-	right_arm.rotation_degrees.x = lerp(right_arm.rotation_degrees.x, swing * 0.22 - 52.0, blend)
+	left_arm.rotation_degrees.x = lerp(left_arm.rotation_degrees.x, -swing * 0.32 - 42.0, blend)
+	right_arm.rotation_degrees.x = lerp(right_arm.rotation_degrees.x, swing * 0.2 - 52.0, blend)
 	left_arm.rotation_degrees.z = lerp(left_arm.rotation_degrees.z, -18.0, blend)
 	right_arm.rotation_degrees.z = lerp(right_arm.rotation_degrees.z, 18.0, blend)
-	body_root.position.y = lerp(body_root.position.y, abs(sin(animation_time * 2.0)) * 0.025 if moving else 0.0, blend)
-	weapon_root.position.y = 1.42 + (sin(animation_time * 2.0) * 0.018 if moving else 0.0)
+	body_root.position.y = lerp(body_root.position.y, abs(sin(animation_time * 2.0)) * 0.022 if moving else 0.0, blend)
+	weapon_root.position.y = 1.42 + (sin(animation_time * 2.0) * 0.016 if moving else 0.0)
+
+func _update_footsteps(delta, moving):
+	if not moving:
+		footstep_timer = min(footstep_timer, 0.2)
+		return
+	footstep_timer -= delta
+	if footstep_timer <= 0.0 and is_instance_valid(footstep_audio):
+		footstep_audio.stream = FOOTSTEP_SOUNDS[footstep_index % FOOTSTEP_SOUNDS.size()]
+		footstep_index += 1
+		footstep_audio.pitch_scale = randf_range(0.92, 1.08)
+		footstep_audio.play()
+		footstep_timer = 0.55
 
 func _has_line_of_sight(enemy):
 	var origin = global_position + Vector3.UP * 1.45
@@ -237,25 +325,47 @@ func _has_line_of_sight(enemy):
 	var hit = get_world_3d().direct_space_state.intersect_ray(query)
 	return not hit.is_empty() and hit.get("collider") == enemy
 
+func _start_reload(stats):
+	if reloading or bot_reserve <= 0:
+		return
+	reloading = true
+	reload_finish_time = Time.get_ticks_msec() * 0.001 + float(stats.reload_time)
+	fire_ready = reload_finish_time
+	if is_instance_valid(reload_audio):
+		reload_audio.pitch_scale = clamp(2.4 / max(float(stats.reload_time), 0.2), 0.62, 1.35)
+		reload_audio.play()
+	weapon_label.text = "ПЕРЕЗАРЯДКА %.0fс" % float(stats.reload_time)
+
+func _finish_reload():
+	var stats = SaveData.get_weapon_stats(weapon_id, 1)
+	var needed = int(stats.magazine) - bot_mag
+	var loaded = min(needed, bot_reserve)
+	bot_mag += loaded
+	bot_reserve -= loaded
+	reloading = false
+	weapon_label.text = SaveData.weapon_catalog()[weapon_id].type
+
 func shoot(enemy):
-	if not game.combat_enabled:
+	if not game.combat_enabled or reloading or bot_mag <= 0:
 		return
 	var stats = SaveData.get_weapon_stats(weapon_id, 1)
-	fire_ready = Time.get_ticks_msec() * 0.001 + float(stats.fire_rate) * randf_range(1.0, 1.45)
+	bot_mag -= 1
+	fire_ready = Time.get_ticks_msec() * 0.001 + float(stats.fire_rate) * randf_range(1.0, 1.38)
 	var distance = global_position.distance_to(enemy.global_position)
 	var range_ratio = clamp(distance / max(float(stats.range), 0.01), 0.0, 1.0)
-	var accuracy = 0.82 - range_ratio * 0.28
+	var accuracy = 0.8 - range_ratio * 0.28
 	if weapon_id == "shotgun":
 		accuracy = 0.92 - range_ratio * 0.52
 	elif weapon_id == "machinegun":
-		accuracy = 0.74 - range_ratio * 0.25
+		accuracy = 0.72 - range_ratio * 0.25
 	elif weapon_id == "sniper":
 		accuracy = 0.9 - range_ratio * 0.18
-	accuracy = clamp(accuracy, 0.28, 0.94)
+	accuracy = clamp(accuracy, 0.26, 0.94)
 
 	var start = weapon_root.to_global(muzzle)
 	var finish = enemy.global_position + Vector3.UP * 1.15
 	var did_hit = false
+	var headshot = false
 	var total_damage = 0.0
 	if weapon_id == "shotgun":
 		var falloff = lerp(1.0, 0.25, range_ratio)
@@ -263,20 +373,31 @@ func shoot(enemy):
 			if randf() <= accuracy:
 				total_damage += float(stats.damage) * falloff
 		did_hit = total_damage > 0.0
+		headshot = did_hit and randf() < 0.045
+		if headshot:
+			total_damage *= float(stats.headshot_multiplier)
 	else:
 		did_hit = randf() <= accuracy
 		if did_hit:
 			total_damage = float(stats.damage)
-			if weapon_id != "sniper" and randf() < 0.09:
+			headshot = randf() < (0.12 if weapon_id == "sniper" else 0.075)
+			if headshot:
 				total_damage *= float(stats.headshot_multiplier)
 
+	if is_instance_valid(shot_audio):
+		shot_audio.stream = load(str(stats.sound))
+		shot_audio.pitch_scale = randf_range(0.96, 1.04)
+		shot_audio.play()
 	if did_hit:
-		enemy.take_damage(total_damage, self)
+		enemy.take_damage(total_damage, self, {"method": weapon_id, "headshot": headshot})
 	else:
 		finish += Vector3(randf_range(-1.4, 1.4), randf_range(-0.8, 1.2), randf_range(-1.4, 1.4))
 	if game:
 		game.spawn_tracer(start, finish, stats.color, did_hit)
+	if bot_mag <= 0 and bot_reserve > 0:
+		_start_reload(stats)
 
 func on_respawned():
 	target = null
 	fire_ready = Time.get_ticks_msec() * 0.001 + 0.8
+	_reset_ammo()

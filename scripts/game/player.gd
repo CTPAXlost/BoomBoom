@@ -11,9 +11,9 @@ var muzzle_light
 var game_hud
 var yaw = 0.0
 var pitch = 0.0
-var speed = 7.3
-var acceleration = 32.0
-var deceleration = 42.0
+var speed = 5.6
+var acceleration = 18.0
+var deceleration = 23.0
 var mouse_sensitivity = 0.0024
 var mobile_sensitivity = 0.0036
 var look_accumulator = Vector2.ZERO
@@ -43,6 +43,19 @@ var medkits_used_life = 0
 var grenades_used_life = 0
 var grenade_ready_time = 0.0
 var soft_aim_target
+var shot_audio
+var reload_audio
+var knife_audio
+var footstep_audio
+var footstep_timer = 0.0
+var footstep_index = 0
+
+const FOOTSTEP_SOUNDS = [
+	preload("res://assets/audio/footstep1.wav"),
+	preload("res://assets/audio/footstep2.wav")
+]
+const RELOAD_SOUND = preload("res://assets/audio/reload.wav")
+const KNIFE_SOUND = preload("res://assets/audio/knife.wav")
 
 func _ready():
 	_build_body()
@@ -70,6 +83,22 @@ func _build_body():
 
 	weapon_root = Node3D.new()
 	camera.add_child(weapon_root)
+	shot_audio = AudioStreamPlayer3D.new()
+	shot_audio.max_distance = 42.0
+	shot_audio.unit_size = 4.0
+	add_child(shot_audio)
+	reload_audio = AudioStreamPlayer3D.new()
+	reload_audio.stream = RELOAD_SOUND
+	reload_audio.max_distance = 24.0
+	add_child(reload_audio)
+	knife_audio = AudioStreamPlayer3D.new()
+	knife_audio.stream = KNIFE_SOUND
+	knife_audio.max_distance = 12.0
+	add_child(knife_audio)
+	footstep_audio = AudioStreamPlayer3D.new()
+	footstep_audio.max_distance = 13.0
+	footstep_audio.volume_db = -7.0
+	add_child(footstep_audio)
 	_build_knife_model()
 	_update_weapon_model()
 
@@ -81,6 +110,7 @@ func setup_player(p_game, p_team, p_name, p_spawn, hud):
 	max_health = float(SaveData.player_max_health())
 	health = max_health
 	set_armor_capacity(SaveData.armor_capacity())
+	headshot_damage_multiplier = 0.5 if SaveData.helmet_owned else 1.0
 	game_hud.set_player(self)
 	_face_towards(Vector3.ZERO)
 
@@ -122,6 +152,7 @@ func _physics_process(delta):
 		_update_weapon_visuals(delta)
 		return
 	_handle_look(delta)
+	_handle_weapon_selection()
 	if is_instance_valid(game) and game.combat_enabled:
 		_apply_soft_aim(delta)
 		_handle_move(delta)
@@ -136,6 +167,8 @@ func _physics_process(delta):
 		if game_hud:
 			game_hud.update_distance(-1.0, float(current_stats().range), false, false)
 	_update_weapon_visuals(delta)
+
+func _handle_weapon_selection():
 
 func _handle_move(delta):
 	var input_vec = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
@@ -165,13 +198,26 @@ func _handle_move(delta):
 	move_and_slide()
 
 	var moving = Vector2(velocity.x, velocity.z).length() > 0.35 and is_on_floor()
+	_update_footsteps(delta, moving)
 	var bob = sin(bob_time) * 0.022 if moving else 0.0
 	head.position.y = lerp(head.position.y, 1.62 + bob, min(1.0, delta * 12.0))
+
+func _update_footsteps(delta, moving):
+	if not moving:
+		footstep_timer = min(footstep_timer, 0.18)
+		return
+	footstep_timer -= delta
+	if footstep_timer <= 0.0 and is_instance_valid(footstep_audio):
+		footstep_audio.stream = FOOTSTEP_SOUNDS[footstep_index % FOOTSTEP_SOUNDS.size()]
+		footstep_index += 1
+		footstep_audio.pitch_scale = randf_range(0.95, 1.05)
+		footstep_audio.play()
+		footstep_timer = 0.48
 
 func _handle_look(delta):
 	if game_hud:
 		look_accumulator += game_hud.consume_look_delta()
-	var smoothing = 1.0 - exp(-42.0 * delta)
+	var smoothing = 1.0 - exp(-24.0 * delta)
 	var applied = look_accumulator * smoothing
 	look_accumulator -= applied
 	if applied.length_squared() > 0.0001:
@@ -249,12 +295,6 @@ func _handle_actions():
 		SaveData.auto_fire = not SaveData.auto_fire
 		SaveData.save_game()
 		game_hud.update_auto_button()
-	for i in range(4):
-		if Input.is_action_just_pressed("slot_%d" % (i + 1)):
-			select_slot(i)
-	var hud_slot = game_hud.consume_slot_request() if game_hud else -1
-	if hud_slot >= 0:
-		select_slot(hud_slot)
 	var manual_fire = Input.is_action_pressed("fire") or (game_hud and game_hud.fire_held)
 	if manual_fire:
 		try_fire()
@@ -349,6 +389,7 @@ func try_fire(assisted_target = null):
 		pistol_state = state
 	else:
 		weapon_states[current_weapon_id] = state
+	_play_weapon_sound(stats)
 
 	var any_hit = false
 	var any_headshot = false
@@ -375,6 +416,16 @@ func try_fire(assisted_target = null):
 			reload_weapon()
 		else:
 			_switch_to_pistol()
+
+func _play_weapon_sound(stats):
+	if not is_instance_valid(shot_audio):
+		return
+	var path = str(stats.get("sound", ""))
+	if path.is_empty():
+		return
+	shot_audio.stream = load(path)
+	shot_audio.pitch_scale = randf_range(0.97, 1.035)
+	shot_audio.play()
 
 func _show_out_of_range_message(now, stats):
 	if now < range_message_ready:
@@ -416,7 +467,7 @@ func _fire_pellet(stats, assisted_target = null):
 			headshot = endpoint.y >= head_height
 			if headshot:
 				damage *= float(stats.headshot_multiplier)
-			collider.take_damage(damage, self)
+			collider.take_damage(damage, self, {"method": current_weapon_id, "headshot": headshot})
 			hit_enemy = true
 	return {"endpoint": endpoint, "hit_enemy": hit_enemy, "headshot": headshot}
 
@@ -439,8 +490,11 @@ func reload_weapon():
 	var token = reload_token
 	var reload_weapon_id = current_weapon_id
 	var reload_pistol = using_pistol
-	reload_animation_duration = float(stats.get("reload_time", 1.35))
+	reload_animation_duration = float(stats.get("reload_time", 2.0))
 	reload_animation_time = reload_animation_duration
+	if is_instance_valid(reload_audio):
+		reload_audio.pitch_scale = clamp(2.4 / max(reload_animation_duration, 0.2), 0.62, 1.35)
+		reload_audio.play()
 	if game_hud:
 		game_hud.show_center_message("ПЕРЕЗАРЯДКА", min(1.0, reload_animation_duration))
 	await get_tree().create_timer(reload_animation_duration).timeout
@@ -472,6 +526,9 @@ func knife_attack():
 	reloading = false
 	reload_animation_time = 0.0
 	knife_animation_time = knife_animation_duration
+	if is_instance_valid(knife_audio):
+		knife_audio.pitch_scale = randf_range(0.96, 1.04)
+		knife_audio.play()
 	if game_hud:
 		game_hud.flash_knife()
 	await get_tree().create_timer(0.11).timeout
@@ -481,7 +538,7 @@ func knife_attack():
 	if not hit.is_empty():
 		var collider = hit.get("collider")
 		if collider is Combatant and collider.team != team:
-			collider.take_damage(55.0, self)
+			collider.take_damage(55.0, self, {"method": "knife", "headshot": false})
 			if game_hud:
 				game_hud.on_weapon_fired(true, false, 1.0)
 
@@ -654,12 +711,27 @@ func _update_weapon_model():
 		_add_weapon_box(Vector3(0, 0.035, -0.38), Vector3(0.08, 0.07, 0.18), Color("2b3038"))
 		_create_muzzle(Vector3(0, 0.035, -0.5))
 	else:
-		_add_weapon_box(Vector3(0, 0, -0.12), Vector3(0.19, 0.18, 0.62), body_color)
-		_add_weapon_box(Vector3(0, 0.025, -0.55), Vector3(0.075, 0.075, 0.36), Color("2b3038"))
+		var body_length = 0.62
+		var barrel_length = 0.36
+		var mag_size = Vector3(0.16, 0.24, 0.24)
+		if current_weapon_id == "rifle_vortex":
+			body_length = 0.69
+			barrel_length = 0.31
+			mag_size = Vector3(0.15, 0.29, 0.22)
+		elif current_weapon_id == "rifle_bastion":
+			body_length = 0.72
+			barrel_length = 0.42
+			mag_size = Vector3(0.18, 0.22, 0.28)
+		elif current_weapon_id == "rifle_phoenix":
+			body_length = 0.78
+			barrel_length = 0.4
+			mag_size = Vector3(0.16, 0.31, 0.25)
+		_add_weapon_box(Vector3(0, 0, -0.12), Vector3(0.19, 0.18, body_length), body_color)
+		_add_weapon_box(Vector3(0, 0.025, -0.55), Vector3(0.075, 0.075, barrel_length), Color("2b3038"))
 		_add_weapon_box(Vector3(0, -0.2, -0.08), Vector3(0.13, 0.36, 0.17), Color("20262d"), Vector3(-12, 0, 0))
-		_add_weapon_box(Vector3(0, -0.13, 0.24), Vector3(0.16, 0.24, 0.24), Color("313a45"), Vector3(10, 0, 0))
+		_add_weapon_box(Vector3(0, -0.13, 0.24), mag_size, Color("313a45"), Vector3(10, 0, 0))
 		_add_weapon_box(Vector3(0, 0.13, -0.18), Vector3(0.08, 0.08, 0.22), Color("151a20"))
-		_create_muzzle(Vector3(0, 0.025, -0.77))
+		_create_muzzle(Vector3(0, 0.025, -0.77 - max(0.0, body_length - 0.62) * 0.6))
 
 func _add_weapon_box(pos, box_size, color, rotation_deg = Vector3.ZERO):
 	var mesh_instance = MeshInstance3D.new()
@@ -768,6 +840,7 @@ func on_respawned():
 	max_health = float(SaveData.player_max_health())
 	health = max_health
 	set_armor_capacity(SaveData.armor_capacity())
+	headshot_damage_multiplier = 0.5 if SaveData.helmet_owned else 1.0
 	medkits_used_life = 0
 	grenades_used_life = 0
 	knife_animation_time = 0.0

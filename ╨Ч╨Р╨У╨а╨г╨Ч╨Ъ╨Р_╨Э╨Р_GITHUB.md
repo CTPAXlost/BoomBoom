@@ -1,30 +1,19 @@
-# Как загрузить проект на GitHub
+# Первая загрузка проекта на GitHub
 
-Самый простой вариант на Windows: создайте пустой репозиторий, затем запустите `ЗАГРУЗИТЬ_НА_GITHUB.bat` и вставьте его HTTPS-ссылку. Скрипт загрузит весь проект вместе со скрытой папкой `.github`.
+1. Создайте пустой репозиторий без README и лицензии.
+2. Распакуйте проект.
+3. Запустите `ЗАГРУЗИТЬ_НА_GITHUB.bat`.
+4. Вставьте HTTPS-адрес репозитория, например `https://github.com/USER/BoomBoom.git`.
+5. После отправки откройте вкладку **Actions**.
+6. Скачайте APK из артефакта `BoomArena-Android-APK`.
 
+Ручные команды:
 
-## Через сайт GitHub
-
-1. На GitHub нажмите **New repository**.
-2. Имя: `boom-arena`.
-3. Не добавляйте README, `.gitignore` и лицензию — они уже есть.
-4. Создайте репозиторий.
-5. Распакуйте архив проекта.
-6. На странице репозитория нажмите **uploading an existing file**.
-7. Перетащите всё содержимое папки проекта, включая `.github`.
-8. Нажмите **Commit changes**.
-9. Откройте **Actions → Build Android APK → Run workflow**.
-10. Скачайте готовый APK из блока **Artifacts**.
-
-## Через Git на Windows
-
-В PowerShell внутри папки проекта:
-
-```powershell
+```bash
 git init
 git add .
-git commit -m "Initial Boom Arena 0.7 prototype"
+git commit -m "Initial Boom Arena 0.8 project"
 git branch -M main
-git remote add origin https://github.com/ВАШ_ЛОГИН/boom-arena.git
+git remote add origin https://github.com/USER/BoomBoom.git
 git push -u origin main
 ```

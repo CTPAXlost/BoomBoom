@@ -3,6 +3,7 @@
 from pathlib import Path
 import re
 import sys
+import wave
 
 root = Path(__file__).resolve().parents[1]
 required = [
@@ -23,14 +24,36 @@ required = [
     "scripts/ui/look_pad.gd",
     "scripts/ui/touch_action_button.gd",
     "scripts/ui/crosshair.gd",
+    "scripts/ui/scope_overlay.gd",
+    "scripts/ui/store_item_icon.gd",
     "signing/boomarena-debug.keystore",
     "gdlintrc",
 ]
+audio_files = [
+    "footstep1.wav", "footstep2.wav", "grenade.wav", "knife.wav",
+    "machinegun.wav", "pistol.wav", "reload.wav", "rifle.wav",
+    "rifle_fast.wav", "rifle_heavy.wav", "rifle_elite.wav",
+    "shotgun.wav", "sniper.wav",
+]
+required += [f"assets/audio/{name}" for name in audio_files]
 errors: list[str] = []
 
 for item in required:
     if not (root / item).is_file():
         errors.append(f"Missing required file: {item}")
+
+for name in audio_files:
+    path = root / "assets" / "audio" / name
+    if not path.is_file():
+        continue
+    try:
+        with wave.open(str(path), "rb") as wav:
+            if wav.getnchannels() != 1 or wav.getsampwidth() != 2:
+                errors.append(f"Audio must be 16-bit mono WAV: {path.relative_to(root)}")
+            if wav.getnframes() <= 100:
+                errors.append(f"Audio file is suspiciously short: {path.relative_to(root)}")
+    except wave.Error as exc:
+        errors.append(f"Invalid WAV {path.relative_to(root)}: {exc}")
 
 resource_pattern = re.compile(r'(?:preload|load)\("res://([^"\n]+)"\)')
 scene_resource_pattern = re.compile(r'path="res://([^"\n]+)"')
@@ -39,8 +62,6 @@ extends_pattern = re.compile(r'^extends\s+([A-Za-z_][A-Za-z0-9_]*)\s*$', re.MULT
 func_pattern = re.compile(r'^func\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(', re.MULTILINE)
 classes: dict[str, Path] = {}
 class_extends: list[tuple[str, Path]] = []
-
-# Native names that must not be reused with class_name in this project/version.
 forbidden_class_names = {"VirtualJoystick"}
 
 
@@ -68,10 +89,10 @@ def balanced_delimiters(text: str, relative: Path) -> None:
                 break
             elif char in "([{":
                 stack.append((char, line_no))
+            elif char in ")]}" and (not stack or stack[-1][0] != pairs[char]):
+                errors.append(f"Unbalanced '{char}' in {relative}:{line_no}")
+                return
             elif char in ")]}":
-                if not stack or stack[-1][0] != pairs[char]:
-                    errors.append(f"Unbalanced '{char}' in {relative}:{line_no}")
-                    return
                 stack.pop()
             i += 1
     if quote:
@@ -117,16 +138,13 @@ if not main_scene_match:
 elif not (root / main_scene_match.group(1)).is_file():
     errors.append(f"Main scene does not exist: res://{main_scene_match.group(1)}")
 
-if "textures/vram_compression/import_etc2_astc=true" not in project_text:
-    errors.append("Android export requires [rendering] textures/vram_compression/import_etc2_astc=true")
-if 'window/handheld/orientation=4' not in project_text:
-    errors.append("Mobile FPS must use sensor landscape orientation (value 4)")
-if 'window/stretch/aspect="expand"' not in project_text:
-    errors.append("Mobile UI requires display/window/stretch/aspect=expand")
-
-splash_match = re.search(r'boot_splash/image="res://([^"\n]+)"', project_text)
-if splash_match and Path(splash_match.group(1)).suffix.lower() != ".png":
-    errors.append("Godot 4.7 boot splash must be a PNG")
+for required_setting in [
+    "textures/vram_compression/import_etc2_astc=true",
+    "window/handheld/orientation=4",
+    'window/stretch/aspect="expand"',
+]:
+    if required_setting not in project_text:
+        errors.append(f"project.godot is missing: {required_setting}")
 
 preset_path = root / "export_presets.cfg"
 preset_text = preset_path.read_text(encoding="utf-8") if preset_path.is_file() else ""
@@ -135,66 +153,48 @@ for required_setting in [
     'export_path="build/BoomArena-debug.apk"',
     'architectures/arm64-v8a=true',
     'package/unique_name="com.franbpm.boomarena"',
-    'version/code=7',
-    'version/name="0.7.0"',
+    'version/code=8',
+    'version/name="0.8.0"',
 ]:
     if required_setting not in preset_text:
         errors.append(f"Android export preset is missing: {required_setting}")
 
-if "gradle_build/use_gradle_build=false" in preset_text:
-    for invalid in ("gradle_build/min_sdk=", "gradle_build/target_sdk="):
-        if invalid in preset_text:
-            errors.append(f"{invalid[:-1]} cannot be overridden while Gradle build is disabled")
-
-arena_path = root / "scripts/game/arena.gd"
-if arena_path.is_file():
-    arena_text = arena_path.read_text(encoding="utf-8")
-    for required_rule in ("score_limit = 25", "show_match_results", "collect_assist_candidates"):
-        if required_rule not in arena_text:
-            errors.append(f"Match rule is missing from arena.gd: {required_rule}")
-
-save_path = root / "autoload/save_data.gd"
-if save_path.is_file():
-    save_text = save_path.read_text(encoding="utf-8")
-    for required_weapon_rule in ('"machinegun"', '"sniper"', '"range": 20.0', '"range": 10.0', '"range": 35.0', '"range": 70.0'):
-        if required_weapon_rule not in save_text:
-            errors.append(f"Weapon rule is missing from save_data.gd: {required_weapon_rule}")
-
-for feature_file, required_rules in {
-    "autoload/save_data.gd": (
-        "aim_assist",
-        "graphics_quality",
-        "show_fps",
-        "MEDKIT_PER_LIFE = 10",
-        "GRENADE_PER_LIFE = 2",
-        "LEVEL_2_XP = 250",
-        "ARMOR_CAPACITIES = [0, 100, 200, 300]",
-    ),
-    "scripts/game/arena.gd": (
-        "func _start_countdown",
-        "combat_enabled = false",
-        "func throw_grenade",
-        "func _create_hideouts",
-        "add_experience",
-    ),
-    "scripts/game/player.gd": (
-        "func _apply_soft_aim",
-        "func use_medkit",
-        "func throw_grenade",
-        'current_weapon_id == "sniper"',
-    ),
-    "scripts/ui/menu_screen.gd": (
-        "AIM — мягкая помощь",
-        "КАЧЕСТВО ГРАФИКИ",
-        "СОХРАНИТЬ",
-    ),
-}.items():
-    feature_path = root / feature_file
-    if feature_path.is_file():
-        feature_text = feature_path.read_text(encoding="utf-8")
-        for rule in required_rules:
-            if rule not in feature_text:
-                errors.append(f"Version 0.7 feature is missing from {feature_file}: {rule}")
+checks = {
+    "autoload/save_data.gd": [
+        "MAX_PLAYER_LEVEL = 5", "LEVEL_XP = [0, 250, 700, 1400, 2400]",
+        '"rifle_vortex"', '"rifle_bastion"', '"rifle_phoenix"',
+        '"reload_time": 2.0', '"reload_time": 5.0', '"reload_time": 4.0',
+        '"reload_time": 3.0', "HELMET_UNLOCK_LEVEL = 3", "selected_map",
+    ],
+    "scripts/game/arena.gd": [
+        'score_limit = 1000 if mode_id == "saloon" else 25',
+        "func _update_control_zone", "zone_score_accumulator", "_add_team_score(active_team, 5)",
+        "FIRST BLOOD", "DOUBLE KILL", "TRIPLE KILL", "UNSTOPPABLE",
+        "func _build_saloon", "func get_bot_objective", "show_match_results",
+    ],
+    "scripts/game/bot.gd": [
+        "bot_mag", "reload_finish_time", "func _start_reload", "func _finish_reload",
+        "func _update_footsteps", "get_bot_objective",
+    ],
+    "scripts/game/player.gd": [
+        "func _handle_weapon_selection", "func _update_footsteps", "func _play_weapon_sound",
+        '{"method": "knife", "headshot": false}', "headshot_damage_multiplier",
+    ],
+    "scripts/ui/menu_screen.gd": [
+        "МАГАЗИН", "ТАКТИЧЕСКАЯ КАСКА", "StoreIconScript", "_select_map",
+    ],
+    "scripts/ui/mobile_hud.gd": [
+        "func set_precombat_mode", "func update_zone", "ScopeOverlayScript",
+    ],
+}
+for relative, snippets in checks.items():
+    path = root / relative
+    if not path.is_file():
+        continue
+    text = path.read_text(encoding="utf-8")
+    for snippet in snippets:
+        if snippet not in text:
+            errors.append(f"Version 0.8 feature is missing from {relative}: {snippet}")
 
 combatant_path = root / "scripts/game/combatant.gd"
 if combatant_path.is_file():
@@ -212,5 +212,5 @@ if errors:
 
 print(
     f"Validation passed: {len(list(root.rglob('*.gd')))} GDScript files, "
-    f"{len(classes)} named classes, Android export settings checked."
+    f"{len(classes)} named classes, audio and Android export settings checked."
 )

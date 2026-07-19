@@ -23,7 +23,7 @@ if not exist .git git init
 git config user.name "Boom Arena Developer"
 git config user.email "boom-arena@local.invalid"
 git add .
-git commit -m "Initial Boom Arena 0.7 prototype" 2>nul || echo Изменения уже зафиксированы.
+git commit -m "Initial Boom Arena 0.8 project" 2>nul || echo Изменения уже зафиксированы.
 git branch -M main
 git remote remove origin 2>nul
 git remote add origin "%REPO_URL%"

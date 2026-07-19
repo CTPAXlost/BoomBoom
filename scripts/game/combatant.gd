@@ -16,7 +16,14 @@ var last_health_damage = 0.0
 var kills = 0
 var assists = 0
 var deaths = 0
+var score_points = 0
+var life_streak = 0
+var best_streak = 0
+var captures = 0
+var zone_seconds = 0.0
 var damage_contributors = {}
+var last_damage_info = {"method": "environment", "headshot": false}
+var headshot_damage_multiplier = 1.0
 
 func setup(p_game, p_team, p_name, p_spawn):
 	game = p_game
@@ -33,11 +40,18 @@ func set_armor_capacity(value):
 	max_armor = max(0.0, float(value))
 	armor = max_armor
 
-func take_damage(amount, attacker = null):
+func take_damage(amount, attacker = null, hit_info = {}):
 	if not alive:
 		return
 	last_attacker = attacker
+	var info = {
+		"method": str(hit_info.get("method", "weapon")),
+		"headshot": bool(hit_info.get("headshot", false))
+	}
 	var remaining = max(0.0, float(amount))
+	if bool(info.headshot):
+		remaining *= clamp(headshot_damage_multiplier, 0.05, 1.0)
+	last_damage_info = info
 	last_armor_damage = 0.0
 	last_health_damage = 0.0
 	if armor > 0.0 and remaining > 0.0:
@@ -96,7 +110,7 @@ func die(attacker):
 	visible = false
 	collision_layer = 0
 	collision_mask = 0
-	game.register_kill(attacker, self)
+	game.register_kill(attacker, self, last_damage_info)
 
 func respawn_at(point):
 	spawn_position = point
@@ -105,7 +119,9 @@ func respawn_at(point):
 	armor = max_armor
 	last_armor_damage = 0.0
 	last_health_damage = 0.0
+	last_damage_info = {"method": "environment", "headshot": false}
 	clear_damage_contributors()
+	life_streak = 0
 	alive = true
 	visible = true
 	collision_layer = 2
